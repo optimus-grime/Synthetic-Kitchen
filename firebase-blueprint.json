@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "An item in the kitchen inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "category": { "type": "string" },
+        "expiryDate": { "type": "string", "format": "date-time" },
+        "lowStockThreshold": { "type": "number" },
+        "image": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "quantity", "unit", "uid"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "A cooking recipe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "image": { "type": "string" },
+        "prepTime": { "type": "number" },
+        "calories": { "type": "number" },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "amount": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "instructions": { "type": "array", "items": { "type": "string" } },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "isFavorite": { "type": "boolean" },
+        "uid": { "type": "string" }
+      },
+      "required": ["title", "uid"]
+    },
+    "Meal": {
+      "title": "Meal",
+      "description": "A scheduled meal in the calendar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"] },
+        "recipeId": { "type": "string" },
+        "recipeTitle": { "type": "string" },
+        "recipeImage": { "type": "string" },
+        "calories": { "type": "number" },
+        "prepTime": { "type": "number" },
+        "uid": { "type": "string" }
+      },
+      "required": ["date", "type", "uid"]
+    },
+    "GroceryItem": {
+      "title": "Grocery Item",
+      "description": "An item on the shopping list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "amount": { "type": "number" },
+        "unit": { "type": "string" },
+        "category": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "uid"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Kitchen inventory items"
+    },
+    "/recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Recipe collection"
+    },
+    "/meals/{mealId}": {
+      "schema": "Meal",
+      "description": "Scheduled meals"
+    },
+    "/grocery/{itemId}": {
+      "schema": "GroceryItem",
+      "description": "Shopping list items"
+    }
+  }
+}

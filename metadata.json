@@ -1,0 +1,5 @@
+{
+  "name": "SYNTHETIC_KITCHEN",
+  "description": "A high-tech smart kitchen management system for meal planning, recipe discovery, and real-time inventory control.",
+  "requestFramePermissions": ["camera"]
+}
