@@ -17,6 +17,7 @@ export default function InventoryPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pantry' | 'shopping'>('pantry');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -64,17 +65,18 @@ export default function InventoryPage() {
         price: Number(newItem.price),
         lowStockThreshold: Number(newItem.lowStockThreshold),
         lifetimePurchased: Number(newItem.quantity),
-        lifetimeSpent: Number(newItem.quantity) * Number(newItem.price)
+        lifetimeSpent: Number(newItem.price),
+        needToBuy: false
       });
       setIsAddModalOpen(false);
       setNewItem({
         name: '',
         quantity: 1,
-        unit: 'g',
+        unit: 'unit',
         category: 'General',
         price: 0,
         expiryDate: '',
-        lowStockThreshold: 100
+        lowStockThreshold: 0
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'inventory');
@@ -99,7 +101,10 @@ export default function InventoryPage() {
 
       if (quantityDiff > 0) {
         updates.lifetimePurchased = (originalItem?.lifetimePurchased || 0) + quantityDiff;
-        updates.lifetimeSpent = (originalItem?.lifetimeSpent || 0) + (quantityDiff * Number(data.price));
+        // Only add to lifetime spent if price is provided, and just add the flat price
+        if (Number(data.price) > 0) {
+           updates.lifetimeSpent = (originalItem?.lifetimeSpent || 0) + Number(data.price);
+        }
       }
 
       await updateDoc(doc(db, 'inventory', id), updates);
@@ -144,11 +149,44 @@ export default function InventoryPage() {
     setIsEditModalOpen(true);
   };
 
+  const toggleNeedToBuy = async (item: InventoryItem) => {
+    try {
+      await updateDoc(doc(db, 'inventory', item.id), {
+        needToBuy: !item.needToBuy
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `inventory/${item.id}`);
+    }
+  };
+
+  const handleGotIt = async (item: InventoryItem) => {
+    const newPriceStr = window.prompt(`Did the price change from $${item.price?.toFixed(2) || '0.00'}? Enter new price or leave as is:`, item.price?.toString() || '0');
+    if (newPriceStr === null) return; // Cancelled
+    
+    const newPrice = Number(newPriceStr);
+    if (isNaN(newPrice)) return;
+
+    try {
+      await updateDoc(doc(db, 'inventory', item.id), {
+        needToBuy: false,
+        price: newPrice,
+        quantity: item.quantity + 1, // Assume they bought 1 unit/pack
+        lifetimePurchased: (item.lifetimePurchased || 0) + 1,
+        lifetimeSpent: (item.lifetimeSpent || 0) + newPrice
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `inventory/${item.id}`);
+    }
+  };
+
   const totalUnits = items.reduce((acc, item) => acc + item.quantity, 0);
   const totalValue = items.reduce((acc, item) => acc + (item.price || 0) * item.quantity, 0);
 
   // Group items by category
-  const categories = items.reduce((acc, item) => {
+  const pantryItems = items.filter(i => !i.needToBuy);
+  const shoppingListItems = items.filter(i => i.needToBuy);
+
+  const categories = (activeTab === 'pantry' ? pantryItems : shoppingListItems).reduce((acc, item) => {
     const cat = item.category || 'General';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(item);
@@ -157,35 +195,71 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-10">
-      {/* Quick Actions Grid */}
-      <section className="grid grid-cols-2 gap-4">
-        <Link to="/scan" className="group relative flex flex-col items-center justify-center p-6 bg-surface-container rounded-xl border border-outline-variant/10 hover:border-primary/40 transition-all duration-300">
-          <div className="mb-3 text-primary-fixed group-hover:scale-110 transition-transform duration-300">
-            <span className="material-symbols-outlined text-4xl">barcode_scanner</span>
-          </div>
-          <span className="font-headline font-bold text-sm tracking-widest uppercase text-on-surface">Scan Barcode</span>
-          <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"></div>
-        </Link>
-        <Link 
-          to="/scan"
-          className="group relative flex flex-col items-center justify-center p-6 bg-surface-container rounded-xl border border-outline-variant/10 hover:border-secondary/40 transition-all duration-300"
+      {/* Tabs */}
+      <div className="flex bg-surface-container-high p-1 rounded-xl">
+        <button 
+          onClick={() => setActiveTab('pantry')}
+          className={cn(
+            "flex-1 py-3 text-sm font-headline font-bold uppercase tracking-widest rounded-lg transition-all",
+            activeTab === 'pantry' ? "bg-primary text-on-primary shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest"
+          )}
         >
-          <div className="mb-3 text-secondary group-hover:scale-110 transition-transform duration-300">
-            <span className="material-symbols-outlined text-4xl">photo_camera</span>
-          </div>
-          <span className="font-headline font-bold text-sm tracking-widest uppercase text-on-surface">Identify Image</span>
-          <div className="absolute inset-0 bg-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"></div>
-        </Link>
-      </section>
+          My Pantry
+        </button>
+        <button 
+          onClick={() => setActiveTab('shopping')}
+          className={cn(
+            "flex-1 py-3 text-sm font-headline font-bold uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-2",
+            activeTab === 'shopping' ? "bg-primary text-on-primary shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest"
+          )}
+        >
+          Shopping List
+          {shoppingListItems.length > 0 && (
+            <span className={cn(
+              "px-2 py-0.5 rounded-full text-[10px]",
+              activeTab === 'shopping' ? "bg-on-primary text-primary" : "bg-primary text-on-primary"
+            )}>
+              {shoppingListItems.length}
+            </span>
+          )}
+        </button>
+      </div>
 
-      {/* Inventory Header */}
+      {/* Quick Actions Grid (Only in Pantry) */}
+      {activeTab === 'pantry' && (
+        <section className="grid grid-cols-2 gap-4">
+          <Link to="/scan" className="group relative flex flex-col items-center justify-center p-6 bg-surface-container rounded-xl border border-outline-variant/10 hover:border-primary/40 transition-all duration-300">
+            <div className="mb-3 text-primary-fixed group-hover:scale-110 transition-transform duration-300">
+              <span className="material-symbols-outlined text-4xl">barcode_scanner</span>
+            </div>
+            <span className="font-headline font-bold text-sm tracking-widest uppercase text-on-surface">Scan Barcode</span>
+            <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"></div>
+          </Link>
+          <Link 
+            to="/scan"
+            className="group relative flex flex-col items-center justify-center p-6 bg-surface-container rounded-xl border border-outline-variant/10 hover:border-secondary/40 transition-all duration-300"
+          >
+            <div className="mb-3 text-secondary group-hover:scale-110 transition-transform duration-300">
+              <span className="material-symbols-outlined text-4xl">photo_camera</span>
+            </div>
+            <span className="font-headline font-bold text-sm tracking-widest uppercase text-on-surface">Identify Image</span>
+            <div className="absolute inset-0 bg-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"></div>
+          </Link>
+        </section>
+      )}
+
+      {/* Header */}
       <div className="flex justify-between items-end">
         <div>
-          <p className="font-headline text-on-surface-variant text-xs uppercase tracking-[0.3em] mb-1">Stock Status (CAD)</p>
-          <h2 className="font-headline text-4xl font-bold tracking-tighter">INVENTORY</h2>
+          <p className="font-headline text-on-surface-variant text-xs uppercase tracking-[0.3em] mb-1">
+            {activeTab === 'pantry' ? 'Stock Status (CAD)' : 'To Buy'}
+          </p>
+          <h2 className="font-headline text-4xl font-bold tracking-tighter">
+            {activeTab === 'pantry' ? 'PANTRY' : 'SHOPPING'}
+          </h2>
         </div>
         <div className="flex items-center gap-4">
-          {items.length > 0 && (
+          {activeTab === 'pantry' && items.length > 0 && (
             <button 
               onClick={handleSelectAll}
               className={cn(
@@ -203,7 +277,7 @@ export default function InventoryPage() {
               </span>
             </button>
           )}
-          {selectedItemIds.length > 0 && (
+          {activeTab === 'pantry' && selectedItemIds.length > 0 && (
             <button 
               onClick={handleDeleteSelected}
               className="flex items-center gap-2 px-4 py-2 bg-error/10 text-error rounded-lg border border-error/20 hover:bg-error/20 transition-colors"
@@ -212,10 +286,12 @@ export default function InventoryPage() {
               <span className="text-[10px] font-headline font-bold uppercase tracking-widest">Delete ({selectedItemIds.length})</span>
             </button>
           )}
-          <div className="text-right ml-2">
-            <p className="font-headline text-primary text-2xl font-bold leading-none">${totalValue.toFixed(2)}</p>
-            <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">Est. Total Value (CAD)</p>
-          </div>
+          {activeTab === 'pantry' && (
+            <div className="text-right ml-2">
+              <p className="font-headline text-primary text-2xl font-bold leading-none">${totalValue.toFixed(2)}</p>
+              <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">Est. Total Value (CAD)</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -264,7 +340,7 @@ export default function InventoryPage() {
                       <div className="flex-1 cursor-pointer" onClick={() => startEditing(item)}>
                         <div className="flex items-center gap-2">
                           <p className="font-headline font-bold text-on-surface uppercase tracking-tight">{item.name}</p>
-                          {isLow && (
+                          {isLow && activeTab === 'pantry' && (
                             <span className="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
                           )}
                         </div>
@@ -279,11 +355,38 @@ export default function InventoryPage() {
                           )}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-headline font-black text-on-surface">
-                          ${((item.price || 0) * item.quantity).toFixed(2)}
-                        </p>
-                        <p className="text-[8px] text-on-surface-variant uppercase tracking-widest">Subtotal</p>
+                      
+                      <div className="flex items-center gap-2">
+                        {activeTab === 'pantry' ? (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); toggleNeedToBuy(item); }}
+                            className="px-3 py-2 bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface rounded-lg border border-outline-variant/30 transition-colors text-[10px] font-headline font-bold uppercase tracking-widest flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-sm">shopping_cart</span>
+                            Need
+                          </button>
+                        ) : (
+                          <>
+                            <a 
+                              href={`https://www.walmart.ca/en/search?q=${encodeURIComponent(item.name)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="px-3 py-2 bg-[#0071ce]/10 text-[#0071ce] rounded-lg hover:bg-[#0071ce]/20 transition-colors text-[10px] font-headline font-bold uppercase tracking-widest flex items-center gap-1"
+                              title="Search on Walmart.ca"
+                            >
+                              <span className="material-symbols-outlined text-sm">shopping_bag</span>
+                              Walmart
+                            </a>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleGotIt(item); }}
+                              className="px-3 py-2 bg-primary/10 text-primary hover:bg-primary hover:text-on-primary rounded-lg transition-colors text-[10px] font-headline font-bold uppercase tracking-widest flex items-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-sm">check_circle</span>
+                              Got It
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   );

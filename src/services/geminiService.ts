@@ -40,13 +40,14 @@ export async function consolidateGroceries(ingredients: any[]): Promise<any[]> {
   }
 }
 
-export async function generateBudgetMealPlan(): Promise<any[]> {
+export async function generateBudgetMealPlan(inventory: string): Promise<any[]> {
   try {
     const response = await fetch('/api/mealplan', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ inventory }),
     });
 
     if (!response.ok) {

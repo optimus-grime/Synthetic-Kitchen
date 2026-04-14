@@ -61,6 +61,7 @@ app.post("/api/identify", async (req, res) => {
 
 app.post("/api/mealplan", async (req, res) => {
   try {
+    const { inventory } = req.body;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
     const response = await ai.models.generateContent({
@@ -73,9 +74,12 @@ app.post("/api/mealplan", async (req, res) => {
       - Texture: Avoid hard-to-chew foods (e.g., raw carrots, nuts, raw apples). Strongly prefer soft textures over crunchy or crispy results.
       - Spice Level: Strictly mild. Avoid anything spicy and do not use "medium" or "hot" heat levels.
       
-      RECIPE STYLE:
-      - Focus on the most affordable, common ingredients (e.g., ground beef, chicken thighs, rice, beans, pasta, frozen veggies, canned tomatoes, eggs).
+      RECIPE STYLE & INGREDIENT RULES:
+      - YOU MUST STRICTLY COOK FROM THE USER'S INVENTORY. Do not suggest recipes that require ingredients the user does not have.
+      - The user's current inventory: ${inventory || 'No inventory provided.'}
+      - You may also use basic staples like water, salt, black pepper, and cooking oil.
       - Keep it VERY basic: 5 or fewer main ingredients per recipe.
+      - Ensure high variety. Do not suggest the same flavor profile or the same dish type (like pasta) more than once or twice in the week.
       - No expensive, organic, vegan, or fancy ingredients. No complex cooking techniques.
       
       Return ONLY a valid JSON array of 14 recipe objects. Each object must have:

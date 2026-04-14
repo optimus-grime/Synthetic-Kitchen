@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, addDoc, getDocs } from 'firebase/firestore';
 import { Meal, GroceryItem, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { motion } from 'motion/react';
@@ -77,7 +77,13 @@ export default function MealsPage() {
     if (!user) return;
     setIsAutoPlanning(true);
     try {
-      const newRecipes = await generateBudgetMealPlan();
+      // Fetch current inventory
+      const inventorySnapshot = await getDocs(query(collection(db, 'inventory'), where('uid', '==', user.uid)));
+      const inventory = inventorySnapshot.docs.map(doc => doc.data() as { name: string, quantity: number, unit: string });
+      
+      const inventoryNames = inventory.map(i => i.name).join(', ');
+
+      const newRecipes = await generateBudgetMealPlan(inventoryNames);
       
       for (let i = 0; i < newRecipes.length; i++) {
         const recipeData = newRecipes[i];

@@ -18,6 +18,7 @@ export interface InventoryItem {
   price?: number;
   lifetimePurchased?: number;
   lifetimeSpent?: number;
+  needToBuy?: boolean;
   uid: string;
 }
 

@@ -42,7 +42,7 @@ export default function App() {
             <Route path="/" element={<MealsPage />} />
             <Route path="/recipes" element={<RecipesPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/grocery" element={<GroceryPage />} />
+            <Route path="/grocery" element={<Navigate to="/inventory" replace />} />
             <Route path="/scan" element={<ScanPage />} />
             <Route path="/deals" element={<WalmartFlyerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
