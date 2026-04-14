@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, addDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, addDoc, getDocs, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { Meal, GroceryItem, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { motion } from 'motion/react';
@@ -21,6 +21,7 @@ export default function MealsPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAutoPlanning, setIsAutoPlanning] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{title: string, message: string, action: () => void} | null>(null);
 
   // Calculate the start of the current week (Monday)
   const weekStart = useMemo(() => {
@@ -173,16 +174,71 @@ export default function MealsPage() {
     if (!user || missingIngredients.length === 0) return;
     try {
       for (const item of missingIngredients) {
-        await addDoc(collection(db, 'grocery'), {
-          ...item,
-          completed: false,
-          uid: user.uid
-        });
+        const existingItem = inventory.find(i => i.name.toLowerCase() === item.name.toLowerCase());
+        if (existingItem) {
+          await updateDoc(doc(db, 'inventory', existingItem.id), {
+            needToBuy: true
+          });
+        } else {
+          await addDoc(collection(db, 'inventory'), {
+            name: item.name,
+            uid: user.uid,
+            quantity: 0,
+            price: 0,
+            unit: item.unit || 'unit',
+            category: 'General',
+            lowStockThreshold: 0,
+            lifetimePurchased: 0,
+            lifetimeSpent: 0,
+            needToBuy: true
+          });
+        }
       }
-      navigate('/grocery');
+      navigate('/inventory');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'grocery');
+      handleFirestoreError(error, OperationType.CREATE, 'inventory');
     }
+  };
+
+  const handleDeleteMeal = (mealId: string) => {
+    if (!user) return;
+    setConfirmAction({
+      title: 'Remove Meal',
+      message: 'Are you sure you want to remove this meal from the plan?',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'meals', mealId));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `meals/${mealId}`);
+        }
+      }
+    });
+  };
+
+  const handleClearWeek = () => {
+    if (!user) return;
+    setConfirmAction({
+      title: 'Clear Week',
+      message: 'Are you sure you want to clear all meals for this week?',
+      action: async () => {
+        setIsAutoPlanning(true);
+        try {
+          // Find all meals in the current week
+          const weekMeals = meals.filter(meal => {
+            const mealDate = new Date(meal.date);
+            return mealDate >= weekStart && mealDate <= weekEnd;
+          });
+          
+          for (const meal of weekMeals) {
+            await deleteDoc(doc(db, 'meals', meal.id));
+          }
+        } catch (error) {
+          console.error("Failed to clear week", error);
+        } finally {
+          setIsAutoPlanning(false);
+        }
+      }
+    });
   };
 
   const totalMealsCost = meals.reduce((sum, meal) => sum + (Number(meal.estimatedCost) || 0), 0);
@@ -207,6 +263,13 @@ export default function MealsPage() {
             </h2>
           </div>
           <div className="flex items-center gap-2 md:ml-auto">
+            <button 
+              onClick={handleClearWeek}
+              className="px-4 py-2 bg-error/10 text-error border border-error/20 rounded-xl font-headline text-xs font-bold uppercase tracking-widest hover:bg-error hover:text-on-primary transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm">delete_sweep</span>
+              Clear Week
+            </button>
             <button 
               onClick={handleAutoPlan}
               disabled={isAutoPlanning}
@@ -281,13 +344,22 @@ export default function MealsPage() {
                 <div className="flex flex-col sm:flex-row">
                   <div className="p-6 flex-1 flex flex-col justify-between">
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
-                          {meal.type === 'breakfast' ? 'wb_twilight' : meal.type === 'lunch' ? 'light_mode' : 'dark_mode'}
-                        </span>
-                        <span className="font-label text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
-                          {meal.type}
-                        </span>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                            {meal.type === 'breakfast' ? 'wb_twilight' : meal.type === 'lunch' ? 'light_mode' : 'dark_mode'}
+                          </span>
+                          <span className="font-label text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
+                            {meal.type}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteMeal(meal.id)}
+                          className="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-error transition-all active:scale-90 hover:bg-error/10 cursor-pointer"
+                          title="Remove Meal"
+                        >
+                          <span className="material-symbols-outlined text-sm">close</span>
+                        </button>
                       </div>
                       <h3 className="font-headline text-2xl font-bold mb-2">{meal.recipeTitle}</h3>
                       <p className="text-on-surface-variant text-sm leading-relaxed max-w-md">Scheduled meal for your NEON PANTRY nutrition plan.</p>
@@ -382,6 +454,42 @@ export default function MealsPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirm Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm" 
+            onClick={() => setConfirmAction(null)} 
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            exit={{ opacity: 0, scale: 0.95 }} 
+            className="relative bg-surface-container p-6 rounded-2xl max-w-sm w-full border border-outline-variant/30 shadow-2xl"
+          >
+            <h3 className="font-headline text-xl font-bold mb-2">{confirmAction.title}</h3>
+            <p className="text-on-surface-variant text-sm mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmAction(null)} 
+                className="flex-1 py-3 rounded-xl border border-outline-variant font-headline font-bold text-xs uppercase tracking-widest hover:bg-surface-container-high transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => { confirmAction.action(); setConfirmAction(null); }} 
+                className="flex-1 py-3 rounded-xl bg-error text-on-primary font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg"
+              >
+                Confirm
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

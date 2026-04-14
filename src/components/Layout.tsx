@@ -21,7 +21,6 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/', label: 'Meals', icon: 'calendar_view_week' },
     { path: '/recipes', label: 'Recipes', icon: 'menu_book' },
     { path: '/inventory', label: 'Pantry', icon: 'kitchen' },
-    { path: '/deals', label: 'Deals', icon: 'local_offer' },
   ];
 
   return (

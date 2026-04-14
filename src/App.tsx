@@ -17,7 +17,6 @@ import RecipesPage from './pages/RecipesPage';
 import InventoryPage from './pages/InventoryPage';
 import GroceryPage from './pages/GroceryPage';
 import ScanPage from './pages/ScanPage';
-import WalmartFlyerPage from './pages/WalmartFlyerPage';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
@@ -44,7 +43,6 @@ export default function App() {
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/grocery" element={<Navigate to="/inventory" replace />} />
             <Route path="/scan" element={<ScanPage />} />
-            <Route path="/deals" element={<WalmartFlyerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

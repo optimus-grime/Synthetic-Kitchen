@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { Recipe, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +24,7 @@ export default function RecipesPage() {
   const [isAddRecipeOpen, setIsAddRecipeOpen] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const [isCalculatingCost, setIsCalculatingCost] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{title: string, message: string, action: () => void} | null>(null);
   
   const [newRecipe, setNewRecipe] = useState({
     title: '',
@@ -188,6 +189,21 @@ export default function RecipesPage() {
     }
   };
 
+  const handleDeleteRecipe = (recipeId: string) => {
+    if (!user) return;
+    setConfirmAction({
+      title: 'Delete Recipe',
+      message: 'Are you sure you want to delete this recipe? This cannot be undone.',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'recipes', recipeId));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `recipes/${recipeId}`);
+        }
+      }
+    });
+  };
+
   const filteredRecipes = recipes.filter(recipe => {
     const matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                          recipe.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -255,12 +271,21 @@ export default function RecipesPage() {
                     <span className="material-symbols-outlined text-sm">schedule</span>
                     <span className="font-headline font-bold">{recipe.prepTime} MIN</span>
                   </div>
-                  <button 
-                    onClick={() => toggleFavorite(recipe)}
-                    className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary transition-all active:scale-90 hover:bg-primary/10 cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined" style={{ fontVariationSettings: `'FILL' ${recipe.isFavorite ? 1 : 0}` }}>favorite</span>
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleDeleteRecipe(recipe.id)}
+                      className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-error transition-all active:scale-90 hover:bg-error/10 cursor-pointer"
+                      title="Delete Recipe"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                    <button 
+                      onClick={() => toggleFavorite(recipe)}
+                      className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary transition-all active:scale-90 hover:bg-primary/10 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontVariationSettings: `'FILL' ${recipe.isFavorite ? 1 : 0}` }}>favorite</span>
+                    </button>
+                  </div>
                 </div>
                 
                 <h2 
@@ -577,6 +602,42 @@ export default function RecipesPage() {
       >
         <span className="material-symbols-outlined text-3xl">add</span>
       </button>
+
+      {/* Confirm Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm" 
+            onClick={() => setConfirmAction(null)} 
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            exit={{ opacity: 0, scale: 0.95 }} 
+            className="relative bg-surface-container p-6 rounded-2xl max-w-sm w-full border border-outline-variant/30 shadow-2xl"
+          >
+            <h3 className="font-headline text-xl font-bold mb-2">{confirmAction.title}</h3>
+            <p className="text-on-surface-variant text-sm mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmAction(null)} 
+                className="flex-1 py-3 rounded-xl border border-outline-variant font-headline font-bold text-xs uppercase tracking-widest hover:bg-surface-container-high transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => { confirmAction.action(); setConfirmAction(null); }} 
+                className="flex-1 py-3 rounded-xl bg-error text-on-primary font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg"
+              >
+                Confirm
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
     </div>
   );

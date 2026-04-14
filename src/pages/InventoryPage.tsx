@@ -22,6 +22,8 @@ export default function InventoryPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [quickAddName, setQuickAddName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
   // Manual Add Form State
   const [newItem, setNewItem] = useState({
@@ -33,6 +35,19 @@ export default function InventoryPage() {
     expiryDate: '',
     lowStockThreshold: 100
   });
+
+  const getCategoryIcon = (cat: string) => {
+    const lower = cat.toLowerCase();
+    if (lower.includes('dairy') || lower.includes('milk') || lower.includes('cheese')) return 'water_drop';
+    if (lower.includes('meat') || lower.includes('beef') || lower.includes('chicken') || lower.includes('pork')) return 'set_meal';
+    if (lower.includes('produce') || lower.includes('veg') || lower.includes('fruit')) return 'eco';
+    if (lower.includes('snack') || lower.includes('sweet') || lower.includes('candy')) return 'cookie';
+    if (lower.includes('drink') || lower.includes('beverage') || lower.includes('water')) return 'local_cafe';
+    if (lower.includes('frozen')) return 'ac_unit';
+    if (lower.includes('bakery') || lower.includes('bread')) return 'bakery_dining';
+    if (lower.includes('pantry') || lower.includes('dry')) return 'kitchen';
+    return 'category';
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -61,12 +76,12 @@ export default function InventoryPage() {
       await addDoc(collection(db, 'inventory'), {
         ...newItem,
         uid: user.uid,
-        quantity: Number(newItem.quantity),
+        quantity: activeTab === 'shopping' ? 0 : Number(newItem.quantity),
         price: Number(newItem.price),
         lowStockThreshold: Number(newItem.lowStockThreshold),
-        lifetimePurchased: Number(newItem.quantity),
-        lifetimeSpent: Number(newItem.price),
-        needToBuy: false
+        lifetimePurchased: activeTab === 'shopping' ? 0 : Number(newItem.quantity),
+        lifetimeSpent: activeTab === 'shopping' ? 0 : Number(newItem.price),
+        needToBuy: activeTab === 'shopping'
       });
       setIsAddModalOpen(false);
       setNewItem({
@@ -78,6 +93,29 @@ export default function InventoryPage() {
         expiryDate: '',
         lowStockThreshold: 0
       });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'inventory');
+    }
+  };
+
+  const handleQuickAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !quickAddName.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'inventory'), {
+        name: quickAddName.trim(),
+        uid: user.uid,
+        quantity: 0,
+        price: 0,
+        unit: 'unit',
+        category: 'General',
+        lowStockThreshold: 0,
+        lifetimePurchased: 0,
+        lifetimeSpent: 0,
+        needToBuy: true
+      });
+      setQuickAddName('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'inventory');
     }
@@ -185,8 +223,18 @@ export default function InventoryPage() {
   // Group items by category
   const pantryItems = items.filter(i => !i.needToBuy);
   const shoppingListItems = items.filter(i => i.needToBuy);
+  const displayedItems = activeTab === 'pantry' ? pantryItems : shoppingListItems;
+  const availableCategories = Array.from(new Set(displayedItems.map(i => i.category || 'General'))).sort((a, b) => {
+    if (a === 'General') return 1;
+    if (b === 'General') return -1;
+    return a.localeCompare(b);
+  });
 
-  const categories = (activeTab === 'pantry' ? pantryItems : shoppingListItems).reduce((acc, item) => {
+  const filteredItems = selectedCategory 
+    ? displayedItems.filter(i => (i.category || 'General') === selectedCategory)
+    : displayedItems;
+
+  const categories = filteredItems.reduce((acc, item) => {
     const cat = item.category || 'General';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(item);
@@ -246,6 +294,59 @@ export default function InventoryPage() {
             <div className="absolute inset-0 bg-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"></div>
           </Link>
         </section>
+      )}
+
+      {/* Quick Add Bar (Only in Shopping List) */}
+      {activeTab === 'shopping' && (
+        <form onSubmit={handleQuickAdd} className="flex gap-2">
+          <input
+            type="text"
+            value={quickAddName}
+            onChange={(e) => setQuickAddName(e.target.value)}
+            placeholder="Quick add to shopping list..."
+            className="flex-1 bg-surface-container-highest border-none rounded-xl py-4 px-6 font-headline uppercase tracking-tighter text-sm focus:ring-2 focus:ring-primary shadow-inner"
+          />
+          <button
+            type="submit"
+            disabled={!quickAddName.trim()}
+            className="px-8 py-4 bg-primary text-on-primary rounded-xl font-headline font-bold uppercase tracking-widest text-sm disabled:opacity-50 transition-opacity shadow-lg"
+          >
+            Add
+          </button>
+        </form>
+      )}
+
+      {/* Category Filter Grid */}
+      {availableCategories.length > 0 && (
+        <div className="flex gap-4 overflow-x-auto hide-scrollbar py-2">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className={cn(
+              "flex flex-col items-center justify-center min-w-[80px] h-20 rounded-xl border transition-all duration-300",
+              selectedCategory === null 
+                ? "bg-primary text-on-primary border-primary shadow-md scale-105" 
+                : "bg-surface-container-high text-on-surface-variant border-outline-variant/20 hover:bg-surface-container-highest"
+            )}
+          >
+            <span className="material-symbols-outlined mb-1">apps</span>
+            <span className="text-[10px] font-headline font-bold uppercase tracking-widest">All</span>
+          </button>
+          {availableCategories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={cn(
+                "flex flex-col items-center justify-center min-w-[80px] h-20 rounded-xl border transition-all duration-300",
+                selectedCategory === cat 
+                  ? "bg-primary text-on-primary border-primary shadow-md scale-105" 
+                  : "bg-surface-container-high text-on-surface-variant border-outline-variant/20 hover:bg-surface-container-highest"
+              )}
+            >
+              <span className="material-symbols-outlined mb-1">{getCategoryIcon(cat)}</span>
+              <span className="text-[10px] font-headline font-bold uppercase tracking-widest truncate w-full px-2 text-center">{cat}</span>
+            </button>
+          ))}
+        </div>
       )}
 
       {/* Header */}
