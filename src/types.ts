@@ -16,6 +16,8 @@ export interface InventoryItem {
   lowStockThreshold?: number;
   image?: string;
   price?: number;
+  lifetimePurchased?: number;
+  lifetimeSpent?: number;
   uid: string;
 }
 
@@ -32,6 +34,7 @@ export interface Recipe {
   image: string;
   prepTime: number;
   calories: number;
+  estimatedCost?: number;
   ingredients: Ingredient[];
   instructions: string[];
   tags: string[];
@@ -47,6 +50,7 @@ export interface Meal {
   recipeTitle?: string;
   recipeImage?: string;
   calories?: number;
+  estimatedCost?: number;
   prepTime?: number;
   ingredients?: Ingredient[];
   uid: string;

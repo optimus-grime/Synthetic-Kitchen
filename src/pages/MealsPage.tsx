@@ -89,6 +89,7 @@ export default function MealsPage() {
           description: recipeData.description,
           prepTime: recipeData.prepTime,
           calories: recipeData.calories,
+          estimatedCost: recipeData.estimatedCost,
           image: `https://loremflickr.com/800/600/${encodeURIComponent(recipeData.title.split(' ')[0])}`,
           ingredients: recipeData.ingredients,
           instructions: recipeData.instructions,
@@ -108,6 +109,7 @@ export default function MealsPage() {
           date: mealDate.toISOString(),
           type: 'dinner',
           calories: recipeData.calories,
+          estimatedCost: recipeData.estimatedCost,
           prepTime: recipeData.prepTime,
           ingredients: recipeData.ingredients
         });
@@ -176,6 +178,16 @@ export default function MealsPage() {
       handleFirestoreError(error, OperationType.CREATE, 'grocery');
     }
   };
+
+  const totalMealsCost = meals.reduce((sum, meal) => sum + (Number(meal.estimatedCost) || 0), 0);
+  const avgCostPerMeal = meals.length > 0 ? (totalMealsCost / meals.length) : 0;
+  const estimatedMonthlyCost = avgCostPerMeal * 30; // Rough estimate for 30 dinners
+
+  const top5PantryItems = useMemo(() => {
+    return [...inventory]
+      .sort((a, b) => (b.lifetimePurchased || 0) - (a.lifetimePurchased || 0))
+      .slice(0, 5);
+  }, [inventory]);
 
   return (
     <div className="space-y-10">
@@ -268,7 +280,7 @@ export default function MealsPage() {
                           {meal.type === 'breakfast' ? 'wb_twilight' : meal.type === 'lunch' ? 'light_mode' : 'dark_mode'}
                         </span>
                         <span className="font-label text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
-                          {meal.type} • {new Date(meal.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {meal.type}
                         </span>
                       </div>
                       <h3 className="font-headline text-2xl font-bold mb-2">{meal.recipeTitle}</h3>
@@ -302,13 +314,38 @@ export default function MealsPage() {
         <div className="md:col-span-4 space-y-6">
           <div className="bg-surface-container-high rounded-xl p-6 border border-outline-variant/10">
             <h4 className="font-headline text-lg font-bold mb-6 flex items-center justify-between">
-              Daily Macros
-              <span className="material-symbols-outlined text-secondary">analytics</span>
+              Budget Insights
+              <span className="material-symbols-outlined text-secondary">payments</span>
             </h4>
             <div className="space-y-6">
-              <MacroBar label="Protein" current={112} target={140} color="bg-primary" />
-              <MacroBar label="Carbs" current={210} target={250} color="bg-secondary" />
-              <MacroBar label="Fats" current={54} target={70} color="bg-tertiary" />
+              <div>
+                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-1">Avg. Cost Per Meal</p>
+                <p className="text-3xl font-headline font-black text-primary">${avgCostPerMeal.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-1">Est. Monthly Dinner Cost</p>
+                <p className="text-2xl font-headline font-bold text-on-surface">${estimatedMonthlyCost.toFixed(2)}</p>
+              </div>
+              
+              <div className="pt-4 border-t border-outline-variant/20">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-4">Top 5 Most Purchased Items</p>
+                <div className="space-y-3">
+                  {top5PantryItems.length > 0 && top5PantryItems.some(i => i.lifetimePurchased) ? top5PantryItems.filter(i => i.lifetimePurchased).map((item, idx) => (
+                    <div key={item.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-on-surface-variant/50 font-bold text-xs">{idx + 1}.</span>
+                        <span className="font-medium truncate max-w-[120px]">{item.name}</span>
+                        <span className="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded">x{item.lifetimePurchased}</span>
+                      </div>
+                      <span className="font-bold text-secondary">
+                        ${(item.lifetimeSpent || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )) : (
+                    <p className="text-xs text-on-surface-variant italic">Add items to inventory to track purchases.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -343,17 +380,4 @@ export default function MealsPage() {
   );
 }
 
-function MacroBar({ label, current, target, color }: { label: string, current: number, target: number, color: string }) {
-  const percentage = Math.min((current / target) * 100, 100);
-  return (
-    <div>
-      <div className="flex justify-between text-[10px] uppercase tracking-widest font-bold mb-2">
-        <span>{label}</span>
-        <span className="text-primary">{current}g / {target}g</span>
-      </div>
-      <div className="h-1.5 w-full bg-background rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all duration-1000", color)} style={{ width: `${percentage}%` }}></div>
-      </div>
-    </div>
-  );
-}
+

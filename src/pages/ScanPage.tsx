@@ -124,7 +124,9 @@ export default function ScanPage() {
           // Update existing item quantity
           const docRef = doc(db, 'inventory', existingItem.id);
           batch.update(docRef, {
-            quantity: existingItem.quantity + (item.quantity || 1)
+            quantity: existingItem.quantity + (item.quantity || 1),
+            lifetimePurchased: (existingItem.lifetimePurchased || 0) + (item.quantity || 1),
+            lifetimeSpent: (existingItem.lifetimeSpent || 0) + ((item.quantity || 1) * (item.price || 0))
           });
         } else {
           // Add new item
@@ -137,7 +139,9 @@ export default function ScanPage() {
             category: item.category || 'General',
             price: item.price || 0,
             expiryDate: new Date(Date.now() + (item.expiryDays || 7) * 24 * 60 * 60 * 1000).toISOString(),
-            lowStockThreshold: 1
+            lowStockThreshold: 1,
+            lifetimePurchased: item.quantity || 1,
+            lifetimeSpent: (item.quantity || 1) * (item.price || 0)
           });
         }
       }

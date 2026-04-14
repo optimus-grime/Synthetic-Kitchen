@@ -62,7 +62,9 @@ export default function InventoryPage() {
         uid: user.uid,
         quantity: Number(newItem.quantity),
         price: Number(newItem.price),
-        lowStockThreshold: Number(newItem.lowStockThreshold)
+        lowStockThreshold: Number(newItem.lowStockThreshold),
+        lifetimePurchased: Number(newItem.quantity),
+        lifetimeSpent: Number(newItem.quantity) * Number(newItem.price)
       });
       setIsAddModalOpen(false);
       setNewItem({
@@ -85,12 +87,22 @@ export default function InventoryPage() {
 
     try {
       const { id, ...data } = editingItem;
-      await updateDoc(doc(db, 'inventory', id), {
+      const originalItem = items.find(i => i.id === id);
+      const quantityDiff = Number(data.quantity) - (originalItem?.quantity || 0);
+      
+      const updates: any = {
         ...data,
         quantity: Number(data.quantity),
         price: Number(data.price),
         lowStockThreshold: Number(data.lowStockThreshold)
-      });
+      };
+
+      if (quantityDiff > 0) {
+        updates.lifetimePurchased = (originalItem?.lifetimePurchased || 0) + quantityDiff;
+        updates.lifetimeSpent = (originalItem?.lifetimeSpent || 0) + (quantityDiff * Number(data.price));
+      }
+
+      await updateDoc(doc(db, 'inventory', id), updates);
       setIsEditModalOpen(false);
       setEditingItem(null);
     } catch (error) {

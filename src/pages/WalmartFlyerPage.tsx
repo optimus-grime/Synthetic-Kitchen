@@ -122,15 +122,17 @@ export default function WalmartFlyerPage() {
         className="mb-10"
       >
         <div className="flex items-center gap-2 mb-2">
-          <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-          <span className="text-primary font-headline text-xs tracking-widest uppercase font-bold">Live Integration Active</span>
+          <span className="w-2 h-2 rounded-full bg-secondary"></span>
+          <span className="text-secondary font-headline text-xs tracking-widest uppercase font-bold">Estimated Budget Pricing</span>
         </div>
         <h2 className="text-4xl md:text-6xl font-headline font-black text-on-surface leading-none mb-4 uppercase">
-          Walmart.ca Flyer <br/>
-          <span className="text-primary-container">Weekly Savings (CAD)</span>
+          Pantry Restock <br/>
+          <span className="text-primary-container">Cost Estimator</span>
         </h2>
         <p className="text-on-surface-variant max-w-xl text-lg font-light">
-          We've synchronized your local Walmart.ca flyer with your pantry inventory. Discover deals on everyday essentials you actually use in Canada.
+          We've analyzed your low-stock inventory to estimate your next grocery bill. 
+          <br/><br/>
+          <span className="text-xs font-bold uppercase tracking-widest text-error/80">Note: Prices shown are estimated averages for budgeting purposes, not live Walmart.ca prices. Click the links to see current live pricing.</span>
         </p>
       </motion.div>
 

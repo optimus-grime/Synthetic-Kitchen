@@ -67,12 +67,19 @@ app.post("/api/mealplan", async (req, res) => {
       model: "gemini-3-flash-preview",
       contents: `You are a budget-conscious meal planner. Generate 7 simple, low-cost, everyday dinner recipes. 
       IMPORTANT: The user frequently cooks with an Air Fryer. Please ensure at least 3-4 of these recipes are specifically designed for or highly optimized for an Air Fryer (and mention it in the title or description).
+      
+      DIETARY RESTRICTIONS & PREFERENCES:
+      - Dislikes: DO NOT include mushrooms or liver.
+      - Texture: Avoid hard-to-chew foods (e.g., raw carrots, nuts, raw apples). Strongly prefer soft textures over crunchy or crispy results.
+      - Spice Level: Strictly mild. Avoid anything spicy and do not use "medium" or "hot" heat levels.
+      
       Focus on affordable, common ingredients (e.g., ground beef, chicken thighs, rice, beans, pasta, frozen veggies). No expensive, organic, vegan, or fancy ingredients.
       Return ONLY a valid JSON array of 7 recipe objects. Each object must have:
       - title (string)
       - description (string)
       - prepTime (number, in minutes)
       - calories (number)
+      - estimatedCost (number, estimated total cost in CAD to make this meal)
       - ingredients (array of objects, each with 'amount' (number), 'unit' (string, e.g., 'g', 'cup', 'unit'), and 'name' (string))
       - instructions (array of strings, step-by-step)`,
       config: {
@@ -86,6 +93,7 @@ app.post("/api/mealplan", async (req, res) => {
               description: { type: Type.STRING },
               prepTime: { type: Type.NUMBER },
               calories: { type: Type.NUMBER },
+              estimatedCost: { type: Type.NUMBER },
               ingredients: {
                 type: Type.ARRAY,
                 items: {
@@ -103,7 +111,7 @@ app.post("/api/mealplan", async (req, res) => {
                 items: { type: Type.STRING }
               }
             },
-            required: ["title", "description", "prepTime", "calories", "ingredients", "instructions"]
+            required: ["title", "description", "prepTime", "calories", "estimatedCost", "ingredients", "instructions"]
           }
         }
       }
