@@ -65,16 +65,20 @@ app.post("/api/mealplan", async (req, res) => {
     
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `You are a budget-conscious meal planner. Generate 7 simple, low-cost, everyday dinner recipes. 
-      IMPORTANT: The user frequently cooks with an Air Fryer. Please ensure at least 3-4 of these recipes are specifically designed for or highly optimized for an Air Fryer (and mention it in the title or description).
+      contents: `You are a budget-conscious meal planner. Generate 14 ultra-basic, extremely simple, and highly budget-friendly dinner recipes. 
+      IMPORTANT: The user frequently cooks with an Air Fryer. Please ensure at least 6-7 of these recipes are specifically designed for or highly optimized for an Air Fryer (and mention it in the title or description).
       
       DIETARY RESTRICTIONS & PREFERENCES:
       - Dislikes: DO NOT include mushrooms or liver.
       - Texture: Avoid hard-to-chew foods (e.g., raw carrots, nuts, raw apples). Strongly prefer soft textures over crunchy or crispy results.
       - Spice Level: Strictly mild. Avoid anything spicy and do not use "medium" or "hot" heat levels.
       
-      Focus on affordable, common ingredients (e.g., ground beef, chicken thighs, rice, beans, pasta, frozen veggies). No expensive, organic, vegan, or fancy ingredients.
-      Return ONLY a valid JSON array of 7 recipe objects. Each object must have:
+      RECIPE STYLE:
+      - Focus on the most affordable, common ingredients (e.g., ground beef, chicken thighs, rice, beans, pasta, frozen veggies, canned tomatoes, eggs).
+      - Keep it VERY basic: 5 or fewer main ingredients per recipe.
+      - No expensive, organic, vegan, or fancy ingredients. No complex cooking techniques.
+      
+      Return ONLY a valid JSON array of 14 recipe objects. Each object must have:
       - title (string)
       - description (string)
       - prepTime (number, in minutes)
