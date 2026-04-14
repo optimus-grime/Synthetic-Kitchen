@@ -266,9 +266,19 @@ export default function GroceryPage() {
                             {item.amount ? `Qty: ${item.amount} ${item.unit || ''}` : 'Qty: 1 Unit'}
                           </p>
                         </div>
+                        <a 
+                          href={`https://www.walmart.ca/en/search?q=${encodeURIComponent(item.name)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 bg-[#0071ce]/10 text-[#0071ce] rounded-lg hover:bg-[#0071ce]/20 transition-colors text-[10px] font-headline font-bold uppercase tracking-widest flex items-center gap-1"
+                          title="Search on Walmart.ca"
+                        >
+                          <span className="material-symbols-outlined text-sm">shopping_bag</span>
+                          <span className="hidden sm:inline">Walmart</span>
+                        </a>
                         <button 
                           onClick={() => deleteItem(item.id)}
-                          className="material-symbols-outlined text-on-surface-variant/30 group-hover:text-error transition-colors cursor-pointer"
+                          className="material-symbols-outlined text-on-surface-variant/30 group-hover:text-error transition-colors cursor-pointer ml-2"
                         >
                           delete
                         </button>
