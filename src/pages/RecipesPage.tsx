@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, updateDoc, doc, addDoc } from 'firebase/firestore';
-import { Recipe } from '../types';
+import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDocs } from 'firebase/firestore';
+import { Recipe, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -23,17 +23,69 @@ export default function RecipesPage() {
   const [isPlanning, setIsPlanning] = useState(false);
   const [isAddRecipeOpen, setIsAddRecipeOpen] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
+  const [isCalculatingCost, setIsCalculatingCost] = useState(false);
   
   const [newRecipe, setNewRecipe] = useState({
     title: '',
     description: '',
     prepTime: 30,
     calories: 500,
+    estimatedCost: 5.00,
     image: '',
     ingredientsText: '',
     instructionsText: '',
     tags: 'Healthy, Quick'
   });
+
+  const calculateEstimatedCost = async () => {
+    if (!user || !newRecipe.ingredientsText.trim()) return;
+    setIsCalculatingCost(true);
+    try {
+      const q = query(collection(db, 'inventory'), where('uid', '==', user.uid));
+      const snapshot = await getDocs(q);
+      const inventory = snapshot.docs.map(doc => doc.data() as InventoryItem);
+
+      const parsedIngredients = newRecipe.ingredientsText.split('\n').filter(i => i.trim()).map(line => {
+        const match = line.trim().match(/^([\d.]+)\s*([a-zA-Z]+)?\s+(.+)$/);
+        if (match) {
+          return { amount: Number(match[1]), unit: match[2] || 'unit', name: match[3].toLowerCase() };
+        }
+        return { amount: 1, unit: 'unit', name: line.trim().toLowerCase() };
+      });
+
+      let totalCost = 0;
+
+      for (const ing of parsedIngredients) {
+        const match = inventory.find(item => 
+          item.name.toLowerCase().includes(ing.name) || 
+          ing.name.includes(item.name.toLowerCase())
+        );
+        
+        if (match && match.price && match.quantity > 0) {
+          const costPerUnit = match.price / match.quantity;
+          
+          let adjustedAmount = ing.amount;
+          const invUnit = (match.unit || '').toLowerCase();
+          const recUnit = (ing.unit || '').toLowerCase();
+          
+          if (recUnit === 'g' && invUnit === 'kg') adjustedAmount = ing.amount / 1000;
+          else if (recUnit === 'kg' && invUnit === 'g') adjustedAmount = ing.amount * 1000;
+          else if (recUnit === 'ml' && invUnit === 'l') adjustedAmount = ing.amount / 1000;
+          else if (recUnit === 'l' && invUnit === 'ml') adjustedAmount = ing.amount * 1000;
+
+          totalCost += costPerUnit * adjustedAmount;
+        }
+      }
+
+      if (totalCost > 0) {
+        setNewRecipe(prev => ({ ...prev, estimatedCost: Number(totalCost.toFixed(2)) }));
+      }
+    } catch (error) {
+      console.error("Failed to calculate cost", error);
+    } finally {
+      setIsCalculatingCost(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -86,6 +138,7 @@ export default function RecipesPage() {
         date: new Date(planDate).toISOString(),
         type: planType,
         calories: planningRecipe.calories || 0,
+        estimatedCost: planningRecipe.estimatedCost || 0,
         prepTime: planningRecipe.prepTime || 0,
         ingredients: planningRecipe.ingredients || []
       });
@@ -120,6 +173,7 @@ export default function RecipesPage() {
         description: newRecipe.description,
         prepTime: Number(newRecipe.prepTime),
         calories: Number(newRecipe.calories),
+        estimatedCost: Number(newRecipe.estimatedCost),
         image: newRecipe.image || `https://loremflickr.com/800/600/${newRecipe.title.split(' ')[0]}`,
         ingredients,
         instructions,
@@ -128,7 +182,7 @@ export default function RecipesPage() {
       });
 
       setIsAddRecipeOpen(false);
-      setNewRecipe({ title: '', description: '', prepTime: 30, calories: 500, image: '', ingredientsText: '', instructionsText: '', tags: 'Healthy, Quick' });
+      setNewRecipe({ title: '', description: '', prepTime: 30, calories: 500, estimatedCost: 5.00, image: '', ingredientsText: '', instructionsText: '', tags: 'Healthy, Quick' });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'recipes');
     }
@@ -340,7 +394,7 @@ export default function RecipesPage() {
                         {viewingRecipe.prepTime} MIN
                       </span>
                       <span className="px-3 py-1 bg-secondary/20 text-secondary text-[10px] font-bold uppercase tracking-widest rounded border border-secondary/30 backdrop-blur-sm">
-                        {viewingRecipe.calories} CAL
+                        ${(viewingRecipe.estimatedCost || 0).toFixed(2)} / MEAL
                       </span>
                     </div>
                     <h2 className="font-headline text-4xl font-black tracking-tight">{viewingRecipe.title}</h2>
@@ -458,12 +512,23 @@ export default function RecipesPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-widest text-on-surface-variant">Calories</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] uppercase tracking-widest text-on-surface-variant">Est. Cost ($)</label>
+                      <button 
+                        type="button" 
+                        onClick={calculateEstimatedCost}
+                        disabled={isCalculatingCost || !newRecipe.ingredientsText.trim()}
+                        className="text-[10px] uppercase tracking-widest font-bold text-primary hover:text-primary-fixed transition-colors disabled:opacity-50"
+                      >
+                        {isCalculatingCost ? 'Calculating...' : 'Auto-Calc'}
+                      </button>
+                    </div>
                     <input 
                       type="number"
+                      step="0.01"
                       required
-                      value={newRecipe.calories}
-                      onChange={e => setNewRecipe({...newRecipe, calories: Number(e.target.value)})}
+                      value={newRecipe.estimatedCost}
+                      onChange={e => setNewRecipe({...newRecipe, estimatedCost: Number(e.target.value)})}
                       className="w-full bg-surface-container-highest border-none rounded-xl py-3 px-4 font-headline text-sm focus:ring-2 focus:ring-primary"
                     />
                   </div>

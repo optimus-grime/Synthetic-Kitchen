@@ -288,7 +288,7 @@ export default function MealsPage() {
                     </div>
                     <div className="mt-4 flex items-center justify-between">
                       <div className="flex gap-4">
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-secondary">{meal.calories || 0} CAL</span>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-secondary">${(meal.estimatedCost || 0).toFixed(2)} / MEAL</span>
                         <span className="text-[10px] uppercase tracking-wider font-bold text-outline">{meal.prepTime || 0} MIN</span>
                       </div>
                       <button 
