@@ -125,6 +125,55 @@ app.post("/api/mealplan", async (req, res) => {
   }
 });
 
+app.post("/api/consolidate-groceries", async (req, res) => {
+  try {
+    const { ingredients } = req.body;
+    if (!ingredients || !Array.isArray(ingredients)) {
+      return res.status(400).json({ error: "Ingredients array is required" });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are a smart grocery list assistant. I will give you a list of raw ingredients extracted from multiple recipes.
+      Your job is to consolidate them into a clean, unified grocery list.
+      - Combine duplicate items (e.g., "1 egg beaten", "3 large eggs", "1 egg" should become "5 eggs" or "5 unit Eggs").
+      - Combine similar items (e.g., "chicken broth", "beef broth" might be combined if it makes sense, or just clean up the names to "Chicken Broth" and "Beef Broth").
+      - Remove preparation instructions (e.g., "chopped", "diced", "beaten", "melted").
+      - Standardize units where possible.
+      - Ignore basic pantry staples like water, salt, black pepper.
+      
+      Raw ingredients:
+      ${JSON.stringify(ingredients)}
+      
+      Return ONLY a JSON array of consolidated items.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING, description: "Clean, consolidated ingredient name (e.g., 'Eggs', 'Chicken Broth')" },
+              amount: { type: Type.NUMBER, description: "Total combined amount" },
+              unit: { type: Type.STRING, description: "Unit of measurement (e.g., 'unit', 'g', 'ml', 'cup')" },
+              category: { type: Type.STRING, description: "Grocery category (e.g., 'Produce', 'Dairy', 'Meat', 'Pantry')" }
+            },
+            required: ["name", "amount", "unit", "category"]
+          }
+        }
+      }
+    });
+
+    const text = response.text?.trim() || "[]";
+    res.json(JSON.parse(text));
+  } catch (error) {
+    console.error("Gemini consolidation error:", error);
+    res.status(500).json({ error: "Failed to consolidate groceries" });
+  }
+});
+
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

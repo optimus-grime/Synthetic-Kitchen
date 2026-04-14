@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Link, useNavigate } from 'react-router-dom';
+import { consolidateGroceries } from '../services/geminiService';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -117,46 +118,72 @@ export default function GroceryPage() {
       const mealsSnapshot = await getDocs(query(collection(db, 'meals'), where('uid', '==', user.uid)));
       const meals = mealsSnapshot.docs.map(doc => doc.data() as Meal);
 
-      // 2. Fetch all inventory
-      const inventorySnapshot = await getDocs(query(collection(db, 'inventory'), where('uid', '==', user.uid)));
-      const inventory = inventorySnapshot.docs.map(doc => doc.data() as InventoryItem);
-
-      // 3. Calculate required ingredients
-      const required = new Map<string, {amount: number, unit: string}>();
-      const ignoreList = ['water', 'salt', 'pepper', 'black pepper', 'tap water'];
-
+      // 2. Extract raw ingredients
+      const rawIngredients: any[] = [];
       meals.forEach(meal => {
         meal.ingredients?.forEach(ing => {
-          const key = ing.name.toLowerCase().trim();
-          if (ignoreList.includes(key)) return;
-          
-          if (!required.has(key)) required.set(key, { amount: 0, unit: ing.unit });
-          required.get(key)!.amount += Number(ing.amount);
+          rawIngredients.push(ing);
         });
       });
 
-      // 4. Determine missing ingredients
+      if (rawIngredients.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
+
+      // 3. Consolidate using AI
+      const consolidated = await consolidateGroceries(rawIngredients);
+
+      // 4. Fetch all inventory
+      const inventorySnapshot = await getDocs(query(collection(db, 'inventory'), where('uid', '==', user.uid)));
+      const inventory = inventorySnapshot.docs.map(doc => doc.data() as InventoryItem);
+
+      // 5. Determine missing ingredients
       const missing: any[] = [];
-      required.forEach((req, name) => {
-        const invItem = inventory.find(i => i.name.toLowerCase().trim() === name);
+      consolidated.forEach((req: any) => {
+        // Find matching inventory item
+        const invItem = inventory.find(i => 
+          i.name.toLowerCase().includes(req.name.toLowerCase()) || 
+          req.name.toLowerCase().includes(i.name.toLowerCase())
+        );
+        
         const invAmount = invItem ? Number(invItem.quantity) : 0;
         
-        if (invAmount < req.amount) {
+        let amountNeeded = req.amount;
+        if (invItem) {
+          const invUnit = (invItem.unit || '').toLowerCase();
+          const reqUnit = (req.unit || '').toLowerCase();
+          
+          if (invUnit === reqUnit || !reqUnit || !invUnit) {
+            amountNeeded = req.amount - invAmount;
+          } else {
+            // If we have the item but units differ, assume we have some. 
+            // We won't add it to the grocery list to prevent duplicates, 
+            // unless they have 0.
+            if (invAmount > 0) {
+              amountNeeded = 0;
+            }
+          }
+        }
+
+        if (amountNeeded > 0) {
           missing.push({ 
-            name: name.charAt(0).toUpperCase() + name.slice(1), 
-            amount: req.amount - invAmount, 
+            name: req.name, 
+            amount: amountNeeded, 
             unit: req.unit, 
-            category: 'General' 
+            category: req.category || 'General' 
           });
         }
       });
 
-      // 5. Add missing to grocery list if not already there
+      // 6. Add missing to grocery list if not already there
       if (missing.length > 0) {
         const batch = writeBatch(db);
         missing.forEach(item => {
           // Check if already in grocery list
-          const alreadyInGrocery = items.some(i => i.name.toLowerCase().trim() === item.name.toLowerCase().trim() && !i.completed);
+          const alreadyInGrocery = items.some(i => 
+            i.name.toLowerCase().includes(item.name.toLowerCase()) && !i.completed
+          );
           if (!alreadyInGrocery) {
             const docRef = doc(collection(db, 'grocery'));
             batch.set(docRef, {
