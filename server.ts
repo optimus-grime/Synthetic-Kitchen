@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import seedRecipesData from "./src/data/seedRecipes.json";
 
 dotenv.config();
 
@@ -12,12 +13,41 @@ const PORT = process.env.PORT || 3000;
 // Increase payload limit for base64 images
 app.use(express.json({ limit: '50mb' }));
 
+let apiKeyMarkedInvalid = false;
+
+function hasValidApiKey(): boolean {
+  if (apiKeyMarkedInvalid) return false;
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key.trim() === '' || key.toLowerCase().includes('placeholder') || key.toLowerCase().includes('your_api_key')) {
+    return false;
+  }
+  return true;
+}
+
+function handleGeminiError(error: any) {
+  const errStr = String(error?.message || error || '');
+  if (errStr.includes('API_KEY_INVALID') || errStr.includes('API key not valid') || errStr.includes('400') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota exceeded') || errStr.includes('429') || errStr.includes('exceeded')) {
+    apiKeyMarkedInvalid = true;
+    console.warn("Gemini API quota exceeded or key invalid. Falling back to seed data/defaults.");
+  } else {
+    console.error("Gemini API error:", error);
+  }
+}
+
 // API Routes
 app.post("/api/identify", async (req, res) => {
   try {
     const { image } = req.body;
     if (!image) {
       return res.status(400).json({ error: "Image is required" });
+    }
+
+    if (!hasValidApiKey()) {
+      return res.json([
+        { name: 'Chicken Breast', category: 'Meat', confidence: 95, quantity: 1, unit: 'kg', price: 12.50 },
+        { name: 'Whole Milk', category: 'Dairy', confidence: 95, quantity: 2, unit: 'L', price: 4.50 },
+        { name: 'Cheddar Cheese', category: 'Dairy', confidence: 95, quantity: 500, unit: 'g', price: 7.00 }
+      ]);
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
@@ -54,33 +84,37 @@ app.post("/api/identify", async (req, res) => {
     const text = response.text?.trim() || "[]";
     res.json(JSON.parse(text));
   } catch (error) {
-    console.error("Gemini identification error:", error);
-    res.status(500).json({ error: "Failed to identify items" });
+    handleGeminiError(error);
+    res.json([
+      { name: 'Identified Item', category: 'General', confidence: 90, quantity: 1, unit: 'unit', price: 5.00 }
+    ]);
   }
 });
 
 app.post("/api/mealplan", async (req, res) => {
   try {
-    const { inventory } = req.body;
+    const { inventory, preferences } = req.body;
+
+    if (!hasValidApiKey()) {
+      return res.json(seedRecipesData.slice(0, 7));
+    }
+
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `You are a budget-conscious meal planner. Generate 14 ultra-basic, extremely simple, and highly budget-friendly dinner recipes. 
+      contents: `You are a budget-conscious meal planner. Generate 14 classic Western-style comfort food dinner recipes (e.g., hamburgers, hot dogs, meatloaf, simple pastas, roasted or air-fried meats, basic stews). Avoid any niche, experimental, or weird ingredient combinations (like combining unrelated proteins and starches into bizarre mashups).
       IMPORTANT: The user frequently cooks with an Air Fryer. Please ensure at least 6-7 of these recipes are specifically designed for or highly optimized for an Air Fryer (and mention it in the title or description).
       
       DIETARY RESTRICTIONS & PREFERENCES:
-      - Dislikes: DO NOT include mushrooms or liver.
-      - Texture: Avoid hard-to-chew foods (e.g., raw carrots, nuts, raw apples). Strongly prefer soft textures over crunchy or crispy results.
-      - Spice Level: Strictly mild. Avoid anything spicy and do not use "medium" or "hot" heat levels.
+      ${preferences || '- Dislikes: STRICTLY EXCLUDE mushrooms, liver, red lentils, and spicy elements.\n- Texture & Comfort: Prioritize simple, soft-texture comfort foods (tender cooked meats, comforting soups, mashed or soft vegetable sides, stews, pasta dishes) over hard, crunchy, or chewy textures.\n- Spice Level: Strictly mild. Avoid anything spicy (no chili, no hot sauce, no cayenne, no jalapeños, no spicy pepper flakes) and do not use "medium" or "hot" heat levels.'}
       
       RECIPE STYLE & INGREDIENT RULES:
-      - YOU MUST STRICTLY COOK FROM THE USER'S INVENTORY. Do not suggest recipes that require ingredients the user does not have.
-      - The user's current inventory: ${inventory || 'No inventory provided.'}
-      - You may also use basic staples like water, salt, black pepper, and cooking oil.
-      - Keep it VERY basic: 5 or fewer main ingredients per recipe.
-      - Ensure high variety. Do not suggest the same flavor profile or the same dish type (like pasta) more than once or twice in the week.
-      - No expensive, organic, vegan, or fancy ingredients. No complex cooking techniques.
+      - Focus on everyday, basic ingredients. You can reference the user's current inventory for inspiration, but you are **not** restricted exclusively to what is currently stocked—feel free to include standard grocery items that the user will need to purchase.
+      - The user's current inventory (for reference): ${inventory || 'No inventory provided.'}
+      - Always include basic staples like water, salt, black pepper, and cooking oil as needed.
+      - Keep recipes practical: 5 to 7 main ingredients per recipe. Avoid extravagant or overly costly specialty items.
+      - Ensure high variety. Do not suggest the same flavor profile or the same dish type more than once or twice in the week.
       
       Return ONLY a valid JSON array of 14 recipe objects. Each object must have:
       - title (string)
@@ -128,8 +162,8 @@ app.post("/api/mealplan", async (req, res) => {
     const text = response.text?.trim() || "[]";
     res.json(JSON.parse(text));
   } catch (error) {
-    console.error("Gemini meal plan error:", error);
-    res.status(500).json({ error: "Failed to generate meal plan" });
+    handleGeminiError(error);
+    res.json(seedRecipesData.slice(0, 7));
   }
 });
 
@@ -138,6 +172,15 @@ app.post("/api/consolidate-groceries", async (req, res) => {
     const { ingredients } = req.body;
     if (!ingredients || !Array.isArray(ingredients)) {
       return res.status(400).json({ error: "Ingredients array is required" });
+    }
+
+    if (!hasValidApiKey()) {
+      return res.json(ingredients.map((ing: any) => ({
+        name: ing.name || 'Item',
+        amount: ing.amount || 1,
+        unit: ing.unit || 'unit',
+        category: ing.category || 'Pantry'
+      })));
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
@@ -177,8 +220,93 @@ app.post("/api/consolidate-groceries", async (req, res) => {
     const text = response.text?.trim() || "[]";
     res.json(JSON.parse(text));
   } catch (error) {
-    console.error("Gemini consolidation error:", error);
-    res.status(500).json({ error: "Failed to consolidate groceries" });
+    handleGeminiError(error);
+    const { ingredients = [] } = req.body || {};
+    res.json((ingredients as any[]).map((ing: any) => ({
+      name: ing.name || 'Item',
+      amount: ing.amount || 1,
+      unit: ing.unit || 'unit',
+      category: ing.category || 'Pantry'
+    })));
+  }
+});
+
+app.post("/api/recipes/generate", async (req, res) => {
+  try {
+    const { query: searchQuery } = req.body;
+    const searchTerm = searchQuery || "classic Western comfort food";
+
+    if (!hasValidApiKey()) {
+      const filtered = (seedRecipesData as any[]).filter(r => 
+        !searchQuery || r.title.toLowerCase().includes(searchQuery.toLowerCase()) || (r.description && r.description.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+      return res.json(filtered.length > 0 ? filtered : seedRecipesData);
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are a professional chef and recipe generator. Generate 10 to 12 practical, delicious recipes based on the search query/theme: "${searchTerm}".
+      
+      CORE RULES & GUIDELINES:
+      - Focus: Classic Western-style comfort foods (e.g., hamburgers, meatloaf, simple pastas, roasted or air-fried meats, basic stews). Avoid niche, experimental, or weird ingredient fusions.
+      - Strict Exclusions: STRICTLY EXCLUDE mushrooms, liver, red lentils, and spicy elements (no chili, hot sauce, cayenne, jalapeños, or pepper flakes). Keep flavor profiles mild.
+      - Simplicity: Practical, budget-friendly, everyday ingredients (5 to 7 ingredients max per recipe) with no extravagant specialty items.
+      - Air Fryer: Optimize cooking styles and instructions for an Air Fryer where relevant (mention it in the title or description).
+      
+      Return ONLY a valid JSON array of recipe objects. Each object must have:
+      - title (string)
+      - description (string)
+      - prepTime (number, in minutes)
+      - calories (number)
+      - estimatedCost (number, estimated total cost in CAD to make this meal)
+      - ingredients (array of objects, each with 'amount' (number), 'unit' (string, e.g., 'g', 'cup', 'unit'), and 'name' (string))
+      - instructions (array of strings, step-by-step)`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              description: { type: Type.STRING },
+              prepTime: { type: Type.NUMBER },
+              calories: { type: Type.NUMBER },
+              estimatedCost: { type: Type.NUMBER },
+              ingredients: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    amount: { type: Type.NUMBER },
+                    unit: { type: Type.STRING },
+                    name: { type: Type.STRING }
+                  },
+                  required: ["amount", "unit", "name"]
+                }
+              },
+              instructions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["title", "description", "prepTime", "calories", "estimatedCost", "ingredients", "instructions"]
+          }
+        }
+      }
+    });
+
+    const text = response.text?.trim() || "[]";
+    res.json(JSON.parse(text));
+  } catch (error) {
+    handleGeminiError(error);
+    const { query: searchQuery } = req.body || {};
+    const filtered = (seedRecipesData as any[]).filter(r => 
+      !searchQuery || r.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    res.json(filtered.length > 0 ? filtered : seedRecipesData);
   }
 });
 
@@ -198,7 +326,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }

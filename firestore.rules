@@ -125,5 +125,9 @@ service cloud.firestore {
       allow update: if isDocOwner() && isValidGroceryItem(request.resource.data) && uidNotModified();
       allow delete: if isDocOwner() || isAdmin();
     }
+
+    match /userPreferences/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
   }
 }

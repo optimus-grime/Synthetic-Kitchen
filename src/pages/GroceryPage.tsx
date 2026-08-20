@@ -8,6 +8,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Link, useNavigate } from 'react-router-dom';
 import { consolidateGroceries } from '../services/geminiService';
+import { normalizeIngredientName, aggregateIngredients } from '../utils/ingredientNormalizer';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -21,6 +22,49 @@ export default function GroceryPage() {
   const [newItemName, setNewItemName] = useState('');
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+  const [inlineEditName, setInlineEditName] = useState<string>('');
+
+  const handleStartInlineEdit = (item: GroceryItem) => {
+    setInlineEditId(item.id);
+    setInlineEditName(item.name);
+  };
+
+  const handleSaveInlineEdit = async (item: GroceryItem) => {
+    if (!inlineEditName.trim() || !user) {
+      setInlineEditId(null);
+      return;
+    }
+
+    const normName = normalizeIngredientName(inlineEditName.trim());
+
+    // Check if another item in grocery has this same normalized name and completed state
+    const existingOther = items.find(
+      i => i.id !== item.id && 
+           normalizeIngredientName(i.name) === normName && 
+           i.completed === item.completed
+    );
+
+    try {
+      if (existingOther) {
+        // Merge quantities into existingOther, delete item
+        const newAmount = (existingOther.amount || 1) + (item.amount || 1);
+        await updateDoc(doc(db, 'grocery', existingOther.id), {
+          amount: newAmount,
+          unit: existingOther.unit || item.unit || 'unit'
+        });
+        await deleteDoc(doc(db, 'grocery', item.id));
+      } else {
+        await updateDoc(doc(db, 'grocery', item.id), {
+          name: normName
+        });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `grocery/${item.id}`);
+    } finally {
+      setInlineEditId(null);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -45,13 +89,24 @@ export default function GroceryPage() {
     e.preventDefault();
     if (!user || !newItemName.trim()) return;
 
+    const normalizedName = normalizeIngredientName(newItemName.trim());
+
     try {
-      await addDoc(collection(db, 'grocery'), {
-        name: newItemName.trim(),
-        completed: false,
-        uid: user.uid,
-        category: 'General'
-      });
+      const existing = items.find(i => normalizeIngredientName(i.name) === normalizedName && !i.completed);
+      if (existing) {
+        await updateDoc(doc(db, 'grocery', existing.id), {
+          amount: (existing.amount || 1) + 1
+        });
+      } else {
+        await addDoc(collection(db, 'grocery'), {
+          name: normalizedName,
+          amount: 1,
+          unit: 'unit',
+          completed: false,
+          uid: user.uid,
+          category: 'General'
+        });
+      }
       setNewItemName('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'grocery');
@@ -131,44 +186,51 @@ export default function GroceryPage() {
         return;
       }
 
-      // 3. Consolidate using AI
-      const consolidated = await consolidateGroceries(rawIngredients);
+      // 3. Optional AI consolidation fallback to raw, followed by canonical normalization & aggregation
+      let consolidatedList: any[] = [];
+      try {
+        consolidatedList = await consolidateGroceries(rawIngredients);
+      } catch (err) {
+        consolidatedList = rawIngredients;
+      }
+
+      const consolidated = aggregateIngredients(
+        consolidatedList && consolidatedList.length > 0 ? consolidatedList : rawIngredients
+      );
 
       // 4. Fetch all inventory
       const inventorySnapshot = await getDocs(query(collection(db, 'inventory'), where('uid', '==', user.uid)));
       const inventory = inventorySnapshot.docs.map(doc => doc.data() as InventoryItem);
 
-      // 5. Determine missing ingredients
+      // 5. Determine missing ingredients using normalized matching
       const missing: any[] = [];
-      consolidated.forEach((req: any) => {
-        // Find matching inventory item
-        const invItem = inventory.find(i => 
-          i.name.toLowerCase().includes(req.name.toLowerCase()) || 
-          req.name.toLowerCase().includes(i.name.toLowerCase())
-        );
+      consolidated.forEach((req) => {
+        const normReqName = normalizeIngredientName(req.name);
+
+        const invItem = inventory.find(i => {
+          const normInvName = normalizeIngredientName(i.name);
+          return normInvName === normReqName || 
+                 normInvName.toLowerCase().includes(normReqName.toLowerCase()) || 
+                 normReqName.toLowerCase().includes(normInvName.toLowerCase());
+        });
         
         const invAmount = invItem ? Number(invItem.quantity) : 0;
         
         let amountNeeded = req.amount;
-        if (invItem) {
+        if (invItem && invAmount > 0) {
           const invUnit = (invItem.unit || '').toLowerCase();
           const reqUnit = (req.unit || '').toLowerCase();
           
           if (invUnit === reqUnit || !reqUnit || !invUnit) {
-            amountNeeded = req.amount - invAmount;
+            amountNeeded = Math.max(0, req.amount - invAmount);
           } else {
-            // If we have the item but units differ, assume we have some. 
-            // We won't add it to the grocery list to prevent duplicates, 
-            // unless they have 0.
-            if (invAmount > 0) {
-              amountNeeded = 0;
-            }
+            amountNeeded = 0;
           }
         }
 
         if (amountNeeded > 0) {
           missing.push({ 
-            name: req.name, 
+            name: normReqName, 
             amount: amountNeeded, 
             unit: req.unit, 
             category: req.category || 'General' 
@@ -176,18 +238,30 @@ export default function GroceryPage() {
         }
       });
 
-      // 6. Add missing to grocery list if not already there
-      if (missing.length > 0) {
+      // 6. Aggregate missing items under canonical names
+      const finalMissing = aggregateIngredients(missing);
+
+      // 7. Add or update missing items in the grocery list
+      if (finalMissing.length > 0) {
         const batch = writeBatch(db);
-        missing.forEach(item => {
-          // Check if already in grocery list
-          const alreadyInGrocery = items.some(i => 
-            i.name.toLowerCase().includes(item.name.toLowerCase()) && !i.completed
+        finalMissing.forEach(item => {
+          const existingInGrocery = items.find(i => 
+            normalizeIngredientName(i.name) === item.name && !i.completed
           );
-          if (!alreadyInGrocery) {
+
+          if (existingInGrocery) {
+            const newAmount = (existingInGrocery.amount || 0) + item.amount;
+            batch.update(doc(db, 'grocery', existingInGrocery.id), {
+              amount: newAmount,
+              unit: item.unit || existingInGrocery.unit || 'unit'
+            });
+          } else {
             const docRef = doc(collection(db, 'grocery'));
             batch.set(docRef, {
-              ...item,
+              name: item.name,
+              amount: item.amount,
+              unit: item.unit || 'unit',
+              category: item.category || 'General',
               completed: false,
               uid: user.uid
             });
@@ -288,8 +362,47 @@ export default function GroceryPage() {
                           className="w-6 h-6 rounded-lg bg-surface-container-highest border-none text-primary-fixed focus:ring-0 cursor-pointer"
                         />
                         <div className="flex-grow">
-                          <p className={clsx("font-bold text-on-surface text-lg", item.completed && "line-through")}>{item.name}</p>
-                          <p className="text-xs text-on-surface-variant uppercase tracking-widest">
+                          {inlineEditId === item.id ? (
+                            <div className="flex items-center gap-2 my-1">
+                              <input 
+                                type="text"
+                                value={inlineEditName}
+                                onChange={(e) => setInlineEditName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveInlineEdit(item);
+                                  if (e.key === 'Escape') setInlineEditId(null);
+                                }}
+                                autoFocus
+                                className="bg-surface-container-highest border border-primary/50 text-on-surface font-bold text-base px-2 py-1 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                              />
+                              <button 
+                                onClick={() => handleSaveInlineEdit(item)}
+                                className="p-1.5 bg-primary text-on-primary rounded-lg hover:bg-primary/80 transition-colors cursor-pointer"
+                                title="Save"
+                              >
+                                <span className="material-symbols-outlined text-sm">check</span>
+                              </button>
+                              <button 
+                                onClick={() => setInlineEditId(null)}
+                                className="p-1.5 bg-surface-container-highest text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer"
+                                title="Cancel"
+                              >
+                                <span className="material-symbols-outlined text-sm">close</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <p className={clsx("font-bold text-on-surface text-lg", item.completed && "line-through")}>{item.name}</p>
+                              <button 
+                                onClick={() => handleStartInlineEdit(item)}
+                                className="opacity-60 hover:opacity-100 text-on-surface-variant hover:text-primary transition-all cursor-pointer p-1 rounded-md"
+                                title="Edit Item Name"
+                              >
+                                <span className="material-symbols-outlined text-sm">edit</span>
+                              </button>
+                            </div>
+                          )}
+                          <p className="text-xs text-on-surface-variant uppercase tracking-widest mt-0.5">
                             {item.amount ? `Qty: ${item.amount} ${item.unit || ''}` : 'Qty: 1 Unit'}
                           </p>
                         </div>

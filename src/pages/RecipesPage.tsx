@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { Recipe, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import seedRecipesData from '../data/seedRecipes.json';
+
+const seedRecipes: Recipe[] = (seedRecipesData as any[]).map(r => ({ ...r, uid: r.uid || 'seed' }));
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+
 
 export default function RecipesPage() {
   const [user] = useAuthState(auth);
@@ -17,6 +22,8 @@ export default function RecipesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [maxPrepTime, setMaxPrepTime] = useState<number>(120);
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<string[]>([]);
   const [planningRecipe, setPlanningRecipe] = useState<Recipe | null>(null);
   const [planDate, setPlanDate] = useState(new Date().toISOString().split('T')[0]);
   const [planType, setPlanType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>('dinner');
@@ -25,6 +32,7 @@ export default function RecipesPage() {
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const [isCalculatingCost, setIsCalculatingCost] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{title: string, message: string, action: () => void} | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
   
   const [newRecipe, setNewRecipe] = useState({
     title: '',
@@ -88,30 +96,90 @@ export default function RecipesPage() {
     }
   };
 
-  useEffect(() => {
-    if (!user) return;
+  const fetchSpoonacularRecipes = async (queryTerm = '') => {
+    setLoading(true);
+    setApiError(null);
+    try {
+      const res = await fetch('/api/recipes/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: queryTerm })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to generate recipes from Gemini');
+      }
+      const rawList = await res.json();
+      const formatted = (Array.isArray(rawList) ? rawList : []).map((r: any, idx: number) => ({
+        id: `gemini-${Date.now()}-${idx}`,
+        title: r.title || 'Comfort Meal',
+        description: r.description || 'Delicious home-style comfort food recipe.',
+        image: r.image || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+        prepTime: r.prepTime || 30,
+        calories: r.calories || 450,
+        estimatedCost: r.estimatedCost || 8.00,
+        ingredients: r.ingredients || [],
+        instructions: r.instructions || ['Prepare and cook as directed.'],
+        tags: r.tags || ['Comfort Food', 'Western'],
+        isFavorite: false,
+        uid: 'gemini'
+      }));
 
-    const q = query(
-      collection(db, 'recipes'),
-      where('uid', '==', user.uid)
-    );
+      let userRecipes: Recipe[] = [];
+      if (user) {
+        try {
+          const q = query(collection(db, 'recipes'), where('uid', '==', user.uid));
+          const snap = await getDocs(q);
+          userRecipes = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe));
+        } catch (e) {
+          console.error("Error loading user recipes", e);
+        }
+      }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const recipesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe));
-      setRecipes(recipesData);
+      setRecipes([...userRecipes, ...formatted]);
+    } catch (err: any) {
+      console.error("Gemini recipe fetch error:", err);
+      setApiError(err.message || 'Service unavailable. Showing offline seed recipes.');
+      let userRecipes: Recipe[] = [];
+      if (user) {
+        try {
+          const q = query(collection(db, 'recipes'), where('uid', '==', user.uid));
+          const snap = await getDocs(q);
+          userRecipes = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe));
+        } catch (e) {}
+      }
+      const combined = [...userRecipes];
+      for (const seed of seedRecipes) {
+        if (!combined.some(r => r.id === seed.id || r.title.toLowerCase() === seed.title.toLowerCase())) {
+          combined.push(seed);
+        }
+      }
+      setRecipes(combined);
+    } finally {
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'recipes');
-    });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    fetchSpoonacularRecipes();
   }, [user]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.trim().length >= 2) {
+        fetchSpoonacularRecipes(searchQuery);
+      } else if (searchQuery.trim().length === 0) {
+        fetchSpoonacularRecipes();
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const toggleFavorite = async (recipe: Recipe) => {
     if (!user) return;
     try {
-      if (recipe.uid === 'mock') {
-        // For mock recipes, just update local state
+      if (recipe.uid === 'mock' || recipe.uid === 'seed' || recipe.id.startsWith('seed-')) {
+        // For seed/mock recipes, just update local state
         setRecipes(prev => prev.map(r => 
           r.id === recipe.id ? { ...r, isFavorite: !r.isFavorite } : r
         ));
@@ -196,7 +264,11 @@ export default function RecipesPage() {
       message: 'Are you sure you want to delete this recipe? This cannot be undone.',
       action: async () => {
         try {
-          await deleteDoc(doc(db, 'recipes', recipeId));
+          if (!recipeId.startsWith('seed-')) {
+            await deleteDoc(doc(db, 'recipes', recipeId));
+          }
+          setRecipes(prev => prev.filter(r => r.id !== recipeId));
+          setSelectedRecipeIds(prev => prev.filter(id => id !== recipeId));
         } catch (error) {
           handleFirestoreError(error, OperationType.DELETE, `recipes/${recipeId}`);
         }
@@ -204,18 +276,79 @@ export default function RecipesPage() {
     });
   };
 
+  const handleDeleteSelected = () => {
+    if (!user || selectedRecipeIds.length === 0) return;
+    setConfirmAction({
+      title: 'Delete Selected Recipes',
+      message: `Are you sure you want to delete ${selectedRecipeIds.length} recipes? This cannot be undone.`,
+      action: async () => {
+        try {
+          const batch = writeBatch(db);
+          let count = 0;
+          for (const id of selectedRecipeIds) {
+            if (!id.startsWith('seed-')) {
+              batch.delete(doc(db, 'recipes', id));
+              count++;
+              if (count % 400 === 0) {
+                await batch.commit();
+              }
+            }
+          }
+          if (count > 0 && count % 400 !== 0) {
+            await batch.commit();
+          }
+          setRecipes(prev => prev.filter(r => !selectedRecipeIds.includes(r.id)));
+          setSelectedRecipeIds([]);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `recipes/batch`);
+        }
+      }
+    });
+  };
+
   const filteredRecipes = recipes.filter(recipe => {
-    const matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         recipe.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = 
+      recipe.title.toLowerCase().includes(searchLower) || 
+      recipe.description.toLowerCase().includes(searchLower) ||
+      (recipe.ingredients && recipe.ingredients.some((ing: any) => ing.name?.toLowerCase().includes(searchLower)));
+      
     const matchesFilter = activeFilter === 'All' || 
                          (recipe.tags && recipe.tags.includes(activeFilter)) ||
                          (activeFilter === 'Quick' && recipe.prepTime <= 20) ||
                          (activeFilter === 'Healthy' && recipe.calories && recipe.calories < 500);
-    return matchesSearch && matchesFilter;
+                         
+    const matchesPrepTime = recipe.prepTime <= maxPrepTime;
+
+    return matchesSearch && matchesFilter && matchesPrepTime;
   });
+
+  const handleSelectAll = () => {
+    if (selectedRecipeIds.length === filteredRecipes.length && filteredRecipes.length > 0) {
+      setSelectedRecipeIds([]);
+    } else {
+      setSelectedRecipeIds(filteredRecipes.map(recipe => recipe.id));
+    }
+  };
+
+  const toggleSelectRecipe = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setSelectedRecipeIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
 
   return (
     <div className="space-y-10">
+      {apiError && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 p-4 rounded-xl flex items-center gap-3 text-sm">
+          <span className="material-symbols-outlined flex-shrink-0">warning</span>
+          <span>{apiError}</span>
+        </div>
+      )}
       {/* Search & Filter Section */}
       <section>
         <div className="relative group">
@@ -226,27 +359,72 @@ export default function RecipesPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-surface-container-highest border-none rounded-xl py-4 pl-12 pr-4 font-headline tracking-widest text-sm focus:ring-2 focus:ring-secondary transition-all placeholder:text-on-surface-variant/40" 
-            placeholder="QUERY DATABASE..." 
+            placeholder="Search recipes, keywords, or ingredients..." 
             type="text"
           />
         </div>
-        <div className="flex gap-3 mt-6 overflow-x-auto hide-scrollbar py-2">
-          {['All', 'Quick', 'Healthy', 'High Protein', 'Low Carb'].map((filter) => (
-            <button 
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              className={cn(
-                "px-6 py-2 rounded-full font-label text-[10px] uppercase tracking-widest flex-shrink-0 transition-all cursor-pointer",
-                activeFilter === filter 
-                  ? "bg-primary-container text-on-primary font-extrabold hover:brightness-110" 
-                  : "bg-surface-container-high text-on-surface-variant font-bold border border-outline-variant/20 hover:border-primary/50"
-              )}
-            >
-              {filter}
-            </button>
-          ))}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mt-6">
+          <div className="flex gap-3 overflow-x-auto hide-scrollbar py-2 w-full md:w-auto">
+            {['All', 'Quick', 'Healthy', 'High Protein', 'Low Carb'].map((filter) => (
+              <button 
+                key={filter}
+                onClick={() => setActiveFilter(filter)}
+                className={cn(
+                  "px-6 py-2 rounded-full font-label text-[10px] uppercase tracking-widest flex-shrink-0 transition-all cursor-pointer",
+                  activeFilter === filter 
+                    ? "bg-primary-container text-on-primary font-extrabold hover:brightness-110" 
+                    : "bg-surface-container-high text-on-surface-variant font-bold border border-outline-variant/20 hover:border-primary/50"
+                )}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-4 text-xs font-headline font-bold text-on-surface-variant uppercase tracking-widest px-2 w-full md:w-auto">
+            <span className="whitespace-nowrap">Max Prep: {maxPrepTime} Min</span>
+            <input 
+              type="range" 
+              min="5" 
+              max="120" 
+              step="5" 
+              value={maxPrepTime} 
+              onChange={e => setMaxPrepTime(Number(e.target.value))} 
+              className="w-full md:w-32 accent-primary" 
+            />
+          </div>
         </div>
       </section>
+
+      {/* Bulk Actions */}
+      <div className="flex flex-wrap items-center gap-4 justify-end">
+        {filteredRecipes.length > 0 && (
+          <button 
+            onClick={handleSelectAll}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors",
+              selectedRecipeIds.length === filteredRecipes.length && filteredRecipes.length > 0
+                ? "bg-primary text-on-primary border-primary"
+                : "bg-surface-container-high text-on-surface border-outline-variant/30 hover:bg-surface-container-highest"
+            )}
+          >
+            <span className="material-symbols-outlined text-sm">
+              {selectedRecipeIds.length === filteredRecipes.length && filteredRecipes.length > 0 ? 'deselect' : 'select_all'}
+            </span>
+            <span className="text-[10px] font-headline font-bold uppercase tracking-widest">
+              {selectedRecipeIds.length === filteredRecipes.length && filteredRecipes.length > 0 ? 'Deselect All' : 'Select All'}
+            </span>
+          </button>
+        )}
+        {selectedRecipeIds.length > 0 && (
+          <button 
+            onClick={handleDeleteSelected}
+            className="flex items-center gap-2 px-4 py-2 bg-error/10 text-error rounded-lg border border-error/20 hover:bg-error/20 transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm">delete</span>
+            <span className="text-[10px] font-headline font-bold uppercase tracking-widest">Delete ({selectedRecipeIds.length})</span>
+          </button>
+        )}
+      </div>
 
       {/* Bento Recipe Gallery */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -263,13 +441,29 @@ export default function RecipesPage() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: i * 0.1 }}
               key={recipe.id}
-              className="group relative overflow-hidden rounded-xl bg-surface-container border border-outline-variant/20 hover:border-primary/30 transition-all duration-300 flex flex-col"
+              className={cn(
+                "group relative overflow-hidden rounded-xl border transition-all duration-300 flex flex-col",
+                selectedRecipeIds.includes(recipe.id) 
+                  ? "bg-primary/5 border-primary/40 shadow-inner" 
+                  : "bg-surface-container border-outline-variant/20 hover:border-primary/30"
+              )}
             >
               <div className="p-6 flex-1 flex flex-col">
                 <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center gap-1 text-on-surface-variant text-xs bg-surface-container-high px-3 py-1 rounded-full">
-                    <span className="material-symbols-outlined text-sm">schedule</span>
-                    <span className="font-headline font-bold">{recipe.prepTime} MIN</span>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={(e) => toggleSelectRecipe(recipe.id, e)}
+                      className={cn(
+                        "w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all cursor-pointer",
+                        selectedRecipeIds.includes(recipe.id) ? "bg-primary border-primary" : "border-outline-variant"
+                      )}
+                    >
+                      {selectedRecipeIds.includes(recipe.id) && <span className="material-symbols-outlined text-[16px] text-on-primary font-bold">check</span>}
+                    </button>
+                    <div className="flex items-center gap-1 text-on-surface-variant text-xs bg-surface-container-high px-3 py-1 rounded-full">
+                      <span className="material-symbols-outlined text-sm">schedule</span>
+                      <span className="font-headline font-bold">{recipe.prepTime} MIN</span>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button 

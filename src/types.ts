@@ -4,6 +4,11 @@ export interface UserProfile {
   displayName: string;
   photoURL: string;
   role: 'admin' | 'user';
+  preferences?: string;
+}
+
+export interface UserPreferences {
+  dietaryPreferences: string;
 }
 
 export interface InventoryItem {

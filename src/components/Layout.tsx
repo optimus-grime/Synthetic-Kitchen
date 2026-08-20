@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { auth } from '../firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import SettingsModal from './SettingsModal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -16,11 +17,13 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const [user] = useAuthState(auth);
   const location = useLocation();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const navItems = [
     { path: '/', label: 'Meals', icon: 'calendar_view_week' },
     { path: '/recipes', label: 'Recipes', icon: 'menu_book' },
     { path: '/inventory', label: 'Pantry', icon: 'kitchen' },
+    { path: '/grocery', label: 'Grocery', icon: 'shopping_cart' },
   ];
 
   return (
@@ -54,15 +57,12 @@ export default function Layout({ children }: LayoutProps) {
               </NavLink>
             ))}
           </div>
-          <div className="w-10 h-10 rounded-full border border-primary/20 overflow-hidden bg-surface-container shadow-[0_0_15px_rgba(161,255,194,0.1)]">
-            {user?.photoURL ? (
-              <img alt="User Profile" className="w-full h-full object-cover" src={user.photoURL} referrerPolicy="no-referrer" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-primary">
-                <span className="material-symbols-outlined">person</span>
-              </div>
-            )}
-          </div>
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[20px]">settings</span>
+          </button>
         </div>
       </header>
 
@@ -91,6 +91,14 @@ export default function Layout({ children }: LayoutProps) {
           </NavLink>
         ))}
       </nav>
+      
+      {user && (
+        <SettingsModal 
+          isOpen={isSettingsOpen} 
+          onClose={() => setIsSettingsOpen(false)} 
+          uid={user.uid} 
+        />
+      )}
     </div>
   );
 }

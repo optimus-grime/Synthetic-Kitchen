@@ -1,39 +1,100 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, addDoc, getDocs, updateDoc, doc, deleteDoc } from 'firebase/firestore';
-import { Meal, GroceryItem, InventoryItem } from '../types';
+import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, doc, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { Meal, Recipe, InventoryItem } from '../types';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { generateBudgetMealPlan } from '../services/geminiService';
-import { useNavigate } from 'react-router-dom';
+import seedRecipesData from '../data/seedRecipes.json';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function fisherYatesShuffle<T>(array: T[]): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 export default function MealsPage() {
   const [user] = useAuthState(auth);
-  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [meals, setMeals] = useState<Meal[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAutoPlanning, setIsAutoPlanning] = useState(false);
+  const [isCrossReferencing, setIsCrossReferencing] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{title: string, message: string, action: () => void} | null>(null);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [newMealModalDay, setNewMealModalDay] = useState<string | null>(null);
+  const [customMealTitle, setCustomMealTitle] = useState('');
 
-  // Calculate the start of the current week (Monday)
+  const handleOpenRecipeModal = async (meal: Meal) => {
+    const seedMatch = (seedRecipesData as any[]).find(
+      r => r.id === meal.recipeId || (meal.recipeTitle && r.title.toLowerCase() === meal.recipeTitle.toLowerCase())
+    );
+
+    if (seedMatch) {
+      setSelectedRecipe({
+        id: seedMatch.id,
+        title: seedMatch.title,
+        description: seedMatch.description || 'Classic home-cooked dinner recipe.',
+        image: seedMatch.image || meal.recipeImage || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+        prepTime: seedMatch.prepTime || meal.prepTime || 30,
+        calories: seedMatch.calories || meal.calories || 450,
+        estimatedCost: seedMatch.estimatedCost || meal.estimatedCost || 10,
+        ingredients: seedMatch.ingredients || meal.ingredients || [],
+        instructions: seedMatch.instructions || [],
+        tags: seedMatch.tags || ['Dinner'],
+        isFavorite: false,
+        uid: user?.uid || ''
+      });
+      return;
+    }
+
+    if (meal.recipeId) {
+      try {
+        const docSnap = await getDoc(doc(db, 'recipes', meal.recipeId));
+        if (docSnap.exists()) {
+          setSelectedRecipe({ id: docSnap.id, ...docSnap.data() } as Recipe);
+          return;
+        }
+      } catch (err) {
+        console.error("Error fetching recipe:", err);
+      }
+    }
+
+    setSelectedRecipe({
+      id: meal.recipeId || meal.id,
+      title: meal.recipeTitle || 'Scheduled Dinner',
+      description: 'Scheduled dinner from your meal plan.',
+      image: meal.recipeImage || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      prepTime: meal.prepTime || 30,
+      calories: meal.calories || 450,
+      estimatedCost: meal.estimatedCost || 10,
+      ingredients: meal.ingredients || [],
+      instructions: ['Prepare according to recipe guidelines.'],
+      tags: ['Meal Plan'],
+      isFavorite: false,
+      uid: user?.uid || ''
+    });
+  };
+
   const weekStart = useMemo(() => {
     const d = new Date(currentDate);
     const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
     return new Date(d.setDate(diff));
   }, [currentDate]);
 
   const weekEnd = useMemo(() => {
     const d = new Date(weekStart);
-    return new Date(d.setDate(d.getDate() + 13));
+    return new Date(d.setDate(d.getDate() + 6));
   }, [weekStart]);
 
   const weekNumber = useMemo(() => {
@@ -48,13 +109,7 @@ export default function MealsPage() {
 
   useEffect(() => {
     if (!user) return;
-
-    const q = query(
-      collection(db, 'meals'),
-      where('uid', '==', user.uid),
-      orderBy('date', 'asc')
-    );
-
+    const q = query(collection(db, 'meals'), where('uid', '==', user.uid), orderBy('date', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const mealsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Meal));
       setMeals(mealsData);
@@ -62,157 +117,146 @@ export default function MealsPage() {
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'meals');
     });
+    return () => unsubscribe();
+  }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'inventory'), where('uid', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const invData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem));
+      setInventory(invData);
+    }, (error) => {
+      console.error("Error fetching inventory", error);
+    });
     return () => unsubscribe();
   }, [user]);
 
   const navigateWeek = (direction: number) => {
     const newDate = new Date(currentDate);
-    newDate.setDate(newDate.getDate() + (direction * 14));
+    newDate.setDate(newDate.getDate() + (direction * 7));
     setCurrentDate(newDate);
   };
 
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const days = [
+    { name: 'Monday', label: 'Mon' },
+    { name: 'Tuesday', label: 'Tue' },
+    { name: 'Wednesday', label: 'Wed' },
+    { name: 'Thursday', label: 'Thu' },
+    { name: 'Friday', label: 'Fri' },
+    { name: 'Saturday', label: 'Sat' },
+    { name: 'Sunday', label: 'Sun' }
+  ];
 
   const handleAutoPlan = async () => {
     if (!user) return;
     setIsAutoPlanning(true);
     try {
-      // Fetch current inventory
-      const inventorySnapshot = await getDocs(query(collection(db, 'inventory'), where('uid', '==', user.uid)));
-      const inventory = inventorySnapshot.docs.map(doc => doc.data() as { name: string, quantity: number, unit: string });
-      
-      const inventoryNames = inventory.map(i => i.name).join(', ');
+      const shuffled = fisherYatesShuffle(seedRecipesData as any[]);
+      const selectedRecipes = shuffled.slice(0, 7);
 
-      const newRecipes = await generateBudgetMealPlan(inventoryNames);
-      
-      for (let i = 0; i < newRecipes.length; i++) {
-        const recipeData = newRecipes[i];
-        
-        // Add Recipe
-        const recipeRef = await addDoc(collection(db, 'recipes'), {
-          uid: user.uid,
-          title: recipeData.title,
-          description: recipeData.description,
-          prepTime: recipeData.prepTime,
-          calories: recipeData.calories,
-          estimatedCost: recipeData.estimatedCost,
-          image: `https://loremflickr.com/800/600/${encodeURIComponent(recipeData.title.split(' ')[0])}`,
-          ingredients: recipeData.ingredients,
-          instructions: recipeData.instructions,
-          tags: ['Budget', 'Auto-Planned'],
-          isFavorite: false
-        });
+      const weekMeals = meals.filter(meal => {
+        const mealDate = new Date(meal.date);
+        return mealDate >= weekStart && mealDate <= weekEnd;
+      });
+      for (const meal of weekMeals) {
+        await deleteDoc(doc(db, 'meals', meal.id));
+      }
 
-        // Add Meal (schedule for the next 7 days starting from currentDate)
-        const mealDate = new Date(currentDate);
+      for (let i = 0; i < 7; i++) {
+        const recipe = selectedRecipes[i];
+        const mealDate = new Date(weekStart);
         mealDate.setDate(mealDate.getDate() + i);
-        
+        mealDate.setHours(18, 0, 0, 0);
+
         await addDoc(collection(db, 'meals'), {
           uid: user.uid,
-          recipeId: recipeRef.id,
-          recipeTitle: recipeData.title,
-          recipeImage: `https://loremflickr.com/800/600/${encodeURIComponent(recipeData.title.split(' ')[0])}`,
           date: mealDate.toISOString(),
           type: 'dinner',
-          calories: recipeData.calories,
-          estimatedCost: recipeData.estimatedCost,
-          prepTime: recipeData.prepTime,
-          ingredients: recipeData.ingredients
+          recipeId: recipe.id || `recipe-${i}`,
+          recipeTitle: recipe.title,
+          recipeImage: recipe.image || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+          prepTime: recipe.prepTime || 30,
+          calories: recipe.calories || 500,
+          estimatedCost: recipe.estimatedCost || 12,
+          ingredients: recipe.ingredients || []
         });
       }
     } catch (error) {
-      console.error("Auto-plan failed", error);
-      alert("Failed to generate meal plan. Please try again.");
+      console.error("Auto plan failed", error);
     } finally {
       setIsAutoPlanning(false);
     }
   };
 
-  const filteredMeals = useMemo(() => {
-    return meals.filter(meal => {
-      const mealDate = new Date(meal.date);
-      return mealDate.toDateString() === currentDate.toDateString();
-    });
-  }, [meals, currentDate]);
-
-  const missingIngredients = useMemo(() => {
-    const required = new Map<string, {amount: number, unit: string}>();
-    
-    // Filter out common ingredients that shouldn't be added to the grocery list
-    const ignoreList = ['water', 'salt', 'pepper', 'black pepper', 'tap water'];
-
-    meals.forEach(meal => {
-      meal.ingredients?.forEach(ing => {
-        const key = ing.name.toLowerCase().trim();
-        if (ignoreList.includes(key)) return;
-        
-        if (!required.has(key)) required.set(key, { amount: 0, unit: ing.unit });
-        required.get(key)!.amount += Number(ing.amount);
-      });
-    });
-
-    const missing: any[] = [];
-    required.forEach((req, name) => {
-      const invItem = inventory.find(i => i.name.toLowerCase() === name);
-      const invAmount = invItem ? Number(invItem.quantity) : 0;
-      
-      if (invAmount < req.amount) {
-        missing.push({ 
-          name: name.charAt(0).toUpperCase() + name.slice(1), 
-          amount: req.amount - invAmount, 
-          unit: req.unit, 
-          category: 'General' 
-        });
-      }
-    });
-
-    return missing;
-  }, [meals, inventory]);
-
-  const handleUpdateGroceryList = async () => {
-    if (!user || missingIngredients.length === 0) return;
-    try {
-      for (const item of missingIngredients) {
-        const existingItem = inventory.find(i => i.name.toLowerCase() === item.name.toLowerCase());
-        if (existingItem) {
-          await updateDoc(doc(db, 'inventory', existingItem.id), {
-            needToBuy: true
-          });
-        } else {
-          await addDoc(collection(db, 'inventory'), {
-            name: item.name,
-            uid: user.uid,
-            quantity: 0,
-            price: 0,
-            unit: item.unit || 'unit',
-            category: 'General',
-            lowStockThreshold: 0,
-            lifetimePurchased: 0,
-            lifetimeSpent: 0,
-            needToBuy: true
-          });
-        }
-      }
-      navigate('/inventory');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'inventory');
-    }
-  };
-
-  const handleDeleteMeal = (mealId: string) => {
+  const handleCheckPantryAndAddGroceries = async () => {
     if (!user) return;
-    setConfirmAction({
-      title: 'Remove Meal',
-      message: 'Are you sure you want to remove this meal from the plan?',
-      action: async () => {
-        try {
-          await deleteDoc(doc(db, 'meals', mealId));
-        } catch (error) {
-          handleFirestoreError(error, OperationType.DELETE, `meals/${mealId}`);
+    setIsCrossReferencing(true);
+    try {
+      const weekMeals = meals.filter(meal => {
+        const mealDate = new Date(meal.date);
+        return mealDate >= weekStart && mealDate <= weekEnd;
+      });
+
+      const allIngredients: { name: string; amount: number; unit: string }[] = [];
+      weekMeals.forEach(meal => {
+        const ingredients = meal.ingredients || [];
+        const seedMatch = (seedRecipesData as any[]).find(
+          r => r.id === meal.recipeId || (meal.recipeTitle && r.title.toLowerCase() === meal.recipeTitle.toLowerCase())
+        );
+        const listToUse = ingredients.length > 0 ? ingredients : (seedMatch?.ingredients || []);
+        listToUse.forEach((ing: any) => {
+          if (ing && ing.name) {
+            allIngredients.push({
+              name: ing.name.trim(),
+              amount: Number(ing.amount) || 1,
+              unit: ing.unit || 'unit'
+            });
+          }
+        });
+      });
+
+      const pantryItemNames = new Set<string>(
+        inventory
+          .filter(i => !i.needToBuy)
+          .map(i => i.name.toLowerCase().trim())
+      );
+
+      const missingIngredients = allIngredients.filter(ing => {
+        const normName = ing.name.toLowerCase().trim();
+        const exists = Array.from(pantryItemNames).some(pName => pName.includes(normName) || normName.includes(pName));
+        return !exists;
+      });
+
+      const batch = writeBatch(db);
+      let addedCount = 0;
+      for (const ing of missingIngredients) {
+        const existingShoppingItem = inventory.find(i => i.needToBuy && i.name.toLowerCase().trim() === ing.name.toLowerCase().trim());
+        if (!existingShoppingItem) {
+          const docRef = doc(collection(db, 'inventory'));
+          batch.set(docRef, {
+            uid: user.uid,
+            name: ing.name,
+            quantity: ing.amount,
+            unit: ing.unit,
+            category: 'Other things',
+            price: 0,
+            needToBuy: true,
+            lowStockThreshold: 0
+          });
+          addedCount++;
         }
       }
-    });
+      if (addedCount > 0) {
+        await batch.commit();
+      }
+      alert(`Cross-referenced pantry! Added ${addedCount} missing ingredient(s) to your Grocery List.`);
+    } catch (error) {
+      console.error("Failed to cross-reference pantry", error);
+      alert("Failed to cross-reference pantry. Please try again.");
+    } finally {
+      setIsCrossReferencing(false);
+    }
   };
 
   const handleClearWeek = () => {
@@ -223,12 +267,10 @@ export default function MealsPage() {
       action: async () => {
         setIsAutoPlanning(true);
         try {
-          // Find all meals in the current week
           const weekMeals = meals.filter(meal => {
             const mealDate = new Date(meal.date);
             return mealDate >= weekStart && mealDate <= weekEnd;
           });
-          
           for (const meal of weekMeals) {
             await deleteDoc(doc(db, 'meals', meal.id));
           }
@@ -241,257 +283,356 @@ export default function MealsPage() {
     });
   };
 
-  const totalMealsCost = meals.reduce((sum, meal) => sum + (Number(meal.estimatedCost) || 0), 0);
-  const avgCostPerMeal = meals.length > 0 ? (totalMealsCost / meals.length) : 0;
-  const estimatedMonthlyCost = avgCostPerMeal * 30; // Rough estimate for 30 dinners
+  const handleDeleteMeal = (mealId: string) => {
+    if (!user) return;
+    setConfirmAction({
+      title: 'Remove Meal',
+      message: 'Are you sure you want to remove this meal?',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'meals', mealId));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `meals/${mealId}`);
+        }
+      }
+    });
+  };
 
-  const top5PantryItems = useMemo(() => {
-    return [...inventory]
-      .sort((a, b) => (b.lifetimePurchased || 0) - (a.lifetimePurchased || 0))
-      .slice(0, 5);
-  }, [inventory]);
+  const handleAddCustomMeal = async (e: React.FormEvent, targetDate: Date) => {
+    e.preventDefault();
+    if (!user || !customMealTitle.trim()) return;
+
+    try {
+      targetDate.setHours(18, 0, 0, 0);
+      await addDoc(collection(db, 'meals'), {
+        uid: user.uid,
+        date: targetDate.toISOString(),
+        type: 'dinner',
+        recipeId: `custom-${Date.now()}`,
+        recipeTitle: customMealTitle.trim(),
+        recipeImage: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+        prepTime: 30,
+        calories: 500,
+        estimatedCost: 10,
+        ingredients: []
+      });
+      setCustomMealTitle('');
+      setNewMealModalDay(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'meals');
+    }
+  };
 
   return (
-    <div className="space-y-10">
-      {/* Date Selector / Timeline */}
-      <section>
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
+    <div className="max-w-7xl mx-auto space-y-8 px-4 sm:px-6 lg:px-8 py-8 bg-[#fbf7f2] min-h-screen text-[#332922]">
+      {/* Hand-Drawn Title Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b-2 border-[#d4a373]/30 pb-6">
+        <div className="flex items-center gap-4">
+          <div className="text-4xl bg-[#f4eee6] p-3 rounded-2xl shadow-inner border border-[#d4a373]/40">
+            📝
+          </div>
           <div>
-            <span className="font-headline text-primary uppercase tracking-widest text-xs font-bold">Week {weekNumber}</span>
-            <h2 className="font-headline text-4xl font-light tracking-tighter mt-1">
-              {monthNames[weekStart.getMonth()]} {weekStart.getDate()}—{weekStart.getMonth() !== weekEnd.getMonth() ? monthNames[weekEnd.getMonth()] + ' ' : ''}{weekEnd.getDate()}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2 md:ml-auto">
-            <button 
-              onClick={handleClearWeek}
-              className="px-4 py-2 bg-error/10 text-error border border-error/20 rounded-xl font-headline text-xs font-bold uppercase tracking-widest hover:bg-error hover:text-on-primary transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-sm">delete_sweep</span>
-              Clear Week
-            </button>
-            <button 
-              onClick={handleAutoPlan}
-              disabled={isAutoPlanning}
-              className="px-4 py-2 bg-secondary/20 text-secondary border border-secondary/30 rounded-xl font-headline text-xs font-bold uppercase tracking-widest hover:bg-secondary hover:text-on-secondary transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-sm">{isAutoPlanning ? 'sync' : 'auto_awesome'}</span>
-              {isAutoPlanning ? 'Planning...' : 'Auto-Plan Week'}
-            </button>
-            <div className="hidden md:flex gap-2">
-              <button 
-                onClick={() => navigateWeek(-1)}
-                className="p-2 rounded-xl bg-surface-container-high text-on-surface hover:bg-surface-bright transition-colors cursor-pointer"
-              >
-                <span className="material-symbols-outlined">chevron_left</span>
-              </button>
-              <button 
-                onClick={() => navigateWeek(1)}
-                className="p-2 rounded-xl bg-surface-container-high text-on-surface hover:bg-surface-bright transition-colors cursor-pointer"
-              >
-                <span className="material-symbols-outlined">chevron_right</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Horizontal Scrollable Calendar Labels */}
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 -mx-4 px-4">
-          {Array.from({ length: 14 }).map((_, i) => {
-            const date = new Date(weekStart);
-            date.setDate(date.getDate() + i);
-            const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-            const isToday = date.toDateString() === new Date().toDateString();
-            const isSelected = date.toDateString() === currentDate.toDateString();
-
-            return (
-              <div
-                key={date.toISOString()}
-                onClick={() => setCurrentDate(date)}
-                className={cn(
-                  "flex-shrink-0 w-24 aspect-[3/4] flex flex-col items-center justify-center rounded-xl border transition-all duration-300 cursor-pointer",
-                  isSelected 
-                    ? "bg-primary text-on-primary ring-4 ring-primary/20 scale-105 border-primary" 
-                    : "bg-surface-container border-outline-variant/20 opacity-50 hover:opacity-100"
-                )}
-              >
-                <span className={cn("font-label text-[10px] uppercase tracking-widest", isSelected ? "font-bold" : "opacity-50")}>{dayName}</span>
-                <span className={cn("font-headline font-bold", isSelected ? "text-3xl" : "text-2xl")}>{date.getDate()}</span>
-                {isToday && <div className={cn("w-1.5 h-1.5 rounded-full mt-1", isSelected ? "bg-on-primary" : "bg-primary")}></div>}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Bento Layout for Daily Meals */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        <div className="md:col-span-8 space-y-6">
-          {loading ? (
-            <div className="animate-pulse space-y-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-48 bg-surface-container rounded-xl"></div>
-              ))}
-            </div>
-          ) : filteredMeals.length > 0 ? (
-            filteredMeals.map((meal) => (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                key={meal.id}
-                className="group relative overflow-hidden bg-surface-container rounded-xl border border-outline-variant/10 hover:border-primary/30 transition-all duration-300"
-              >
-                <div className="flex flex-col sm:flex-row">
-                  <div className="p-6 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
-                            {meal.type === 'breakfast' ? 'wb_twilight' : meal.type === 'lunch' ? 'light_mode' : 'dark_mode'}
-                          </span>
-                          <span className="font-label text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
-                            {meal.type}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteMeal(meal.id)}
-                          className="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-error transition-all active:scale-90 hover:bg-error/10 cursor-pointer"
-                          title="Remove Meal"
-                        >
-                          <span className="material-symbols-outlined text-sm">close</span>
-                        </button>
-                      </div>
-                      <h3 className="font-headline text-2xl font-bold mb-2">{meal.recipeTitle}</h3>
-                      <p className="text-on-surface-variant text-sm leading-relaxed max-w-md">Scheduled meal for your NEON PANTRY nutrition plan.</p>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="flex gap-4">
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-secondary">${(meal.estimatedCost || 0).toFixed(2)} / MEAL</span>
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-outline">{meal.prepTime || 0} MIN</span>
-                      </div>
-                      <button 
-                        onClick={() => navigate('/recipes')}
-                        className="inline-flex items-center gap-2 font-headline text-xs font-bold uppercase tracking-widest text-primary hover:gap-3 transition-all cursor-pointer bg-transparent border-none"
-                      >
-                        View Recipe <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))
-          ) : (
-            <div className="text-center py-20 bg-surface-container rounded-xl border border-dashed border-outline-variant/30">
-              <span className="material-symbols-outlined text-4xl text-on-surface-variant/30 mb-4">restaurant</span>
-              <p className="text-on-surface-variant">No meals scheduled for today.</p>
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar: Nutrition & Grocery Stats */}
-        <div className="md:col-span-4 space-y-6">
-          <div className="bg-surface-container-high rounded-xl p-6 border border-outline-variant/10">
-            <h4 className="font-headline text-lg font-bold mb-6 flex items-center justify-between">
-              Budget Insights
-              <span className="material-symbols-outlined text-secondary">payments</span>
-            </h4>
-            <div className="space-y-6">
-              <div>
-                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-1">Avg. Cost Per Meal</p>
-                <p className="text-3xl font-headline font-black text-primary">${avgCostPerMeal.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-1">Est. Monthly Dinner Cost</p>
-                <p className="text-2xl font-headline font-bold text-on-surface">${estimatedMonthlyCost.toFixed(2)}</p>
-              </div>
-              
-              <div className="pt-4 border-t border-outline-variant/20">
-                <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant mb-4">Top 5 Most Purchased Items</p>
-                <div className="space-y-3">
-                  {top5PantryItems.length > 0 && top5PantryItems.some(i => i.lifetimePurchased) ? top5PantryItems.filter(i => i.lifetimePurchased).map((item, idx) => (
-                    <div key={item.id} className="flex justify-between items-center text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-on-surface-variant/50 font-bold text-xs">{idx + 1}.</span>
-                        <span className="font-medium truncate max-w-[120px]">{item.name}</span>
-                        <span className="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded">x{item.lifetimePurchased}</span>
-                      </div>
-                      <span className="font-bold text-secondary">
-                        ${(item.lifetimeSpent || 0).toFixed(2)}
-                      </span>
-                    </div>
-                  )) : (
-                    <p className="text-xs text-on-surface-variant italic">Add items to inventory to track purchases.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-surface-container-highest rounded-xl p-6 border border-primary/20">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <span className="material-symbols-outlined">shopping_cart_checkout</span>
-              </div>
-              <div>
-                <h4 className="font-headline font-bold text-lg">Inventory Sync</h4>
-                <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
-                  {missingIngredients.length} Ingredients Missing
-                </p>
-              </div>
-            </div>
-            <p className="text-on-surface-variant text-xs mb-6 leading-relaxed">
-              {missingIngredients.length > 0 
-                ? `Your pantry is missing key items for today's meals (e.g., ${missingIngredients[0].name}). Auto-add to grocery list?`
-                : `You have all the ingredients needed for today's meals!`}
+            <h1 className="text-5xl font-['Caveat'] font-bold text-[#3a2e26] tracking-wide">
+              Weekly Meal Plan
+            </h1>
+            <p className="text-sm font-['Caveat'] text-[#786c62] tracking-wider text-lg">
+              Week {weekNumber} • {monthNames[weekStart.getMonth()]} {weekStart.getDate()} – {weekEnd.getDate()}, {weekEnd.getFullYear()}
             </p>
-            <button 
-              onClick={handleUpdateGroceryList}
-              disabled={missingIngredients.length === 0}
-              className="w-full py-3 bg-primary text-on-primary font-headline text-xs font-bold uppercase tracking-widest rounded-xl hover:opacity-90 transition-opacity active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Update Grocery List
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button 
+            onClick={handleCheckPantryAndAddGroceries}
+            disabled={isCrossReferencing}
+            className="px-4 py-2.5 bg-[#8c6d53] text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#735742] transition-all flex items-center gap-2 disabled:opacity-50 shadow"
+            title="Cross-reference ingredients with pantry and add missing items to grocery list"
+          >
+            <span className="material-symbols-outlined text-sm">{isCrossReferencing ? 'sync' : 'playlist_add_check'}</span>
+            {isCrossReferencing ? 'Checking...' : 'Check Pantry & Add Missing'}
+          </button>
+          <button 
+            onClick={handleClearWeek}
+            className="px-4 py-2 bg-[#f4eee6] text-[#786c62] border border-[#d4a373]/40 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#ebdccc] transition-all flex items-center gap-1.5 shadow-2xs"
+          >
+            <span className="material-symbols-outlined text-sm">delete_sweep</span>
+            Clear Week
+          </button>
+          <button 
+            onClick={handleAutoPlan}
+            disabled={isAutoPlanning}
+            className="px-5 py-2.5 bg-[#d4a373] text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#bc8a5f] transition-all flex items-center gap-2 disabled:opacity-50 shadow-sm"
+          >
+            <span className="material-symbols-outlined text-sm">{isAutoPlanning ? 'sync' : 'auto_awesome'}</span>
+            {isAutoPlanning ? 'Planning...' : 'Auto-Plan Week'}
+          </button>
+          <div className="flex gap-1 bg-[#f4eee6] p-1 rounded-xl border border-[#d4a373]/40">
+            <button onClick={() => navigateWeek(-1)} className="p-2 rounded-lg bg-white shadow-xs text-[#3a2e26] hover:bg-[#fcfaf7]">
+              <span className="material-symbols-outlined text-sm">chevron_left</span>
+            </button>
+            <button onClick={() => navigateWeek(1)} className="p-2 rounded-lg bg-white shadow-xs text-[#3a2e26] hover:bg-[#fcfaf7]">
+              <span className="material-symbols-outlined text-sm">chevron_right</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Confirm Modal */}
-      {confirmAction && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm" 
-            onClick={() => setConfirmAction(null)} 
-          />
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }} 
-            animate={{ opacity: 1, scale: 1 }} 
-            exit={{ opacity: 0, scale: 0.95 }} 
-            className="relative bg-surface-container p-6 rounded-2xl max-w-sm w-full border border-outline-variant/30 shadow-2xl"
-          >
-            <h3 className="font-headline text-xl font-bold mb-2">{confirmAction.title}</h3>
-            <p className="text-on-surface-variant text-sm mb-6">{confirmAction.message}</p>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setConfirmAction(null)} 
-                className="flex-1 py-3 rounded-xl border border-outline-variant font-headline font-bold text-xs uppercase tracking-widest hover:bg-surface-container-high transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={() => { confirmAction.action(); setConfirmAction(null); }} 
-                className="flex-1 py-3 rounded-xl bg-error text-on-primary font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg"
-              >
-                Confirm
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+      {/* 7 Lined Note Paper Cards Grid (Inspired by Template) with Lifted Shadows */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pb-24">
+        {days.map((dayObj, idx) => {
+          const dayDate = new Date(weekStart);
+          dayDate.setDate(dayDate.getDate() + idx);
+          
+          const dayMeals = meals.filter(meal => {
+            const mDate = new Date(meal.date);
+            return mDate.toDateString() === dayDate.toDateString();
+          });
+
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.05 }}
+              key={dayObj.name}
+              className="bg-[#fffdfa] rounded-2xl border-2 border-[#d4a373]/65 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden flex flex-col min-h-[380px] relative"
+            >
+              {/* Lined Note Paper Header Box */}
+              <div className="bg-[#f4eee6] px-4 py-3 border-b-2 border-[#d4a373]/40 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full border border-[#d4a373] flex items-center justify-center text-[10px] font-bold text-[#8c6d53] bg-white">
+                    ⊗
+                  </div>
+                  <h3 className="font-['Caveat'] text-2xl font-bold text-[#3a2e26] tracking-wide">
+                    {dayObj.name}
+                  </h3>
+                </div>
+                <span className="text-xs font-mono font-bold text-[#786c62] bg-white px-2 py-0.5 rounded border border-[#d4a373]/40 shadow-2xs">
+                  {dayDate.getMonth() + 1}/{dayDate.getDate()}
+                </span>
+              </div>
+
+              {/* Lined Note Paper Content Area */}
+              <div className="p-4 flex-1 flex flex-col justify-between bg-[linear-gradient(to_bottom,transparent_31px,#e8dfd3_32px)] bg-[size:100%_32px]">
+                <div className="space-y-4 pt-1">
+                  {dayMeals.length > 0 ? (
+                    dayMeals.map((meal) => {
+                      const seedMatch = (seedRecipesData as any[]).find(
+                        r => r.id === meal.recipeId || (meal.recipeTitle && r.title.toLowerCase() === meal.recipeTitle.toLowerCase())
+                      );
+                      const ingredientsList = (meal.ingredients && meal.ingredients.length > 0) ? meal.ingredients : (seedMatch?.ingredients || []);
+
+                      return (
+                        <div 
+                          key={meal.id}
+                          className="group relative bg-[#fffdfa]/90 p-2.5 rounded-xl border border-[#d4a373]/30 shadow-2xs hover:bg-white transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span 
+                                onClick={() => handleOpenRecipeModal(meal)}
+                                className="font-['Caveat'] text-2xl font-bold text-[#3a2e26] block truncate cursor-pointer hover:text-[#bc8a5f] transition-colors"
+                              >
+                                {meal.recipeTitle}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => handleOpenRecipeModal(meal)}
+                                className="text-[10px] font-bold text-[#8c6d53] px-1.5 py-0.5 bg-[#f4eee6] rounded hover:bg-[#ebdccc]"
+                                title="View Full Recipe"
+                              >
+                                View
+                              </button>
+                              <button
+                                onClick={() => handleDeleteMeal(meal.id)}
+                                className="text-red-500 hover:text-red-700 p-1"
+                                title="Remove"
+                              >
+                                <span className="material-symbols-outlined text-xs">close</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Printed Ingredients on Lined Card */}
+                          {ingredientsList.length > 0 && (
+                            <div className="mt-1 pt-1 border-t border-[#f4eee6] font-['Caveat'] text-lg text-[#786c62] leading-snug">
+                              <span className="font-bold text-[#8c6d53] text-sm mr-1">Ingredients:</span>
+                              {ingredientsList.map((i: any) => i.name).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="py-6 text-center">
+                      <p className="font-['Caveat'] text-xl text-[#b0a496] italic">No meals added yet...</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-4 mt-auto border-t border-[#e8dfd3]">
+                  <button 
+                    onClick={() => setNewMealModalDay(dayDate.toISOString())}
+                    className="w-full py-2 bg-[#f4eee6]/90 hover:bg-[#f4eee6] text-[#786c62] hover:text-[#3a2e26] rounded-xl text-xs font-['Caveat'] text-xl font-bold tracking-wide border border-[#d4a373]/40 transition-colors shadow-2xs flex items-center justify-center gap-1"
+                  >
+                    <span>+ Add Meal</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Add Custom Meal Modal */}
+      <AnimatePresence>
+        {newMealModalDay && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setNewMealModalDay(null)}
+              className="absolute inset-0 bg-[#3a2e26]/40 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-md bg-[#fffdfa] border-2 border-[#d4a373] rounded-2xl p-6 shadow-2xl"
+            >
+              <h3 className="font-['Caveat'] text-3xl font-bold text-[#3a2e26] mb-4">Add Meal for {new Date(newMealModalDay).toLocaleDateString('en-US', { weekday: 'long' })}</h3>
+              <form onSubmit={(e) => handleAddCustomMeal(e, new Date(newMealModalDay))} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-widest text-[#786c62]">Meal / Recipe Title</label>
+                  <input 
+                    required
+                    autoFocus
+                    value={customMealTitle}
+                    onChange={e => setCustomMealTitle(e.target.value)}
+                    className="w-full bg-[#fdfbf7] border border-[#d4a373]/50 rounded-xl py-2.5 px-3 font-['Caveat'] text-2xl text-[#3a2e26] focus:ring-2 focus:ring-[#d4a373] outline-none"
+                    placeholder="e.g. Garlic Butter Steak & Veggies"
+                  />
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => setNewMealModalDay(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#d4a373]/50 text-[#786c62] font-bold uppercase tracking-widest text-xs hover:bg-[#fdfbf7]"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-[#d4a373] text-white font-bold uppercase tracking-widest text-xs shadow hover:bg-[#bc8a5f]"
+                  >
+                    Add Meal
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Recipe Modal */}
+      <AnimatePresence>
+        {selectedRecipe && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedRecipe(null)}
+              className="absolute inset-0 bg-[#3a2e26]/40 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-2xl bg-[#fffdfa] border-2 border-[#d4a373] rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="font-['Caveat'] text-4xl font-bold text-[#3a2e26]">{selectedRecipe.title}</h2>
+                <button 
+                  onClick={() => setSelectedRecipe(null)}
+                  className="w-8 h-8 rounded-full bg-[#f4eee6] text-[#786c62] flex items-center justify-center hover:bg-[#ebdccc]"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-sm text-[#786c62] leading-relaxed font-body">{selectedRecipe.description}</p>
+                <div className="flex gap-4 text-xs font-mono text-[#786c62] bg-[#f4eee6]/60 p-3 rounded-xl border border-[#d4a373]/40">
+                  <span>⏱️ Prep: {selectedRecipe.prepTime} mins</span>
+                  <span>🔥 Calories: {selectedRecipe.calories} kcal</span>
+                  <span>💰 Est. Cost: ${(selectedRecipe.estimatedCost || 10).toFixed(2)}</span>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-widest text-[#3a2e26] mb-2">Ingredients</h3>
+                  <ul className="space-y-1 text-xs text-[#786c62]">
+                    {selectedRecipe.ingredients.map((ing, i) => (
+                      <li key={i} className="flex justify-between border-b border-[#e8dfd3] py-1">
+                        <span>{ing.name}</span>
+                        <span className="font-mono">{ing.amount} {ing.unit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-widest text-[#3a2e26] mb-2">Instructions</h3>
+                  <ol className="space-y-2 text-xs text-[#786c62] list-decimal pl-4">
+                    {selectedRecipe.instructions.map((step, i) => (
+                      <li key={i} className="leading-relaxed">{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Dialog */}
+      <AnimatePresence>
+        {confirmAction && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmAction(null)}
+              className="absolute inset-0 bg-[#3a2e26]/40 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-[#fffdfa] border-2 border-[#d4a373] rounded-2xl p-6 shadow-2xl space-y-4 text-center"
+            >
+              <h3 className="font-['Caveat'] text-3xl font-bold text-[#3a2e26]">{confirmAction.title}</h3>
+              <p className="text-xs text-[#786c62]">{confirmAction.message}</p>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-[#d4a373]/50 text-[#786c62] font-bold uppercase tracking-widest text-xs hover:bg-[#fdfbf7]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { confirmAction.action(); setConfirmAction(null); }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-bold uppercase tracking-widest text-xs shadow hover:bg-red-700"
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-
-

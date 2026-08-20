@@ -1,0 +1,348 @@
+[
+  {
+    "id": "seed-1",
+    "title": "Classic Meatloaf",
+    "description": "Tender ground beef baked with a savory tomato glaze.",
+    "image": "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 60,
+    "calories": 450,
+    "estimatedCost": 12.5,
+    "ingredients": [
+      { "name": "Ground Beef", "amount": 1, "unit": "lb" },
+      { "name": "Breadcrumbs", "amount": 0.5, "unit": "cup" },
+      { "name": "Egg", "amount": 1, "unit": "unit" },
+      { "name": "Ketchup", "amount": 0.25, "unit": "cup" },
+      { "name": "Onion", "amount": 1, "unit": "unit" }
+    ],
+    "instructions": [
+      "Preheat oven to 350°F (175°C).",
+      "Mix ground beef, breadcrumbs, egg, diced onion, salt, and pepper in a bowl.",
+      "Shape into a loaf in a baking dish.",
+      "Spread ketchup over top and bake for 55 minutes."
+    ],
+    "tags": ["Dinner", "Comfort Food", "Beef"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-2",
+    "title": "Oven-Baked Chicken Thighs",
+    "description": "Crispy seasoned bone-in chicken thighs roasted to perfection.",
+    "image": "https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 40,
+    "calories": 520,
+    "estimatedCost": 9.0,
+    "ingredients": [
+      { "name": "Chicken Thighs", "amount": 4, "unit": "unit" },
+      { "name": "Olive Oil", "amount": 2, "unit": "tbsp" },
+      { "name": "Garlic Powder", "amount": 1, "unit": "tsp" },
+      { "name": "Paprika", "amount": 1, "unit": "tsp" },
+      { "name": "Salt", "amount": 0.5, "unit": "tsp" },
+      { "name": "Black Pepper", "amount": 0.5, "unit": "tsp" }
+    ],
+    "instructions": [
+      "Preheat oven to 400°F (200°C).",
+      "Pat chicken dry and rub with olive oil, garlic powder, paprika, salt, and pepper.",
+      "Place on a baking sheet and bake for 35-40 minutes until skin is golden and internal temp reaches 165°F."
+    ],
+    "tags": ["Dinner", "Chicken", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-3",
+    "title": "Hearty Beef Stew",
+    "description": "Slow-simmered tender beef chunks with potatoes and carrots in rich broth.",
+    "image": "https://images.unsplash.com/photo-1534939561126-855b8675edd7?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 90,
+    "calories": 480,
+    "estimatedCost": 15.0,
+    "ingredients": [
+      { "name": "Stewing Beef", "amount": 1.5, "unit": "lb" },
+      { "name": "Potatoes", "amount": 3, "unit": "unit" },
+      { "name": "Carrots", "amount": 3, "unit": "unit" },
+      { "name": "Beef Broth", "amount": 4, "unit": "cup" },
+      { "name": "Onion", "amount": 1, "unit": "unit" }
+    ],
+    "instructions": [
+      "Sear beef chunks in a pot until browned on all sides.",
+      "Add chopped onion, potatoes, and carrots.",
+      "Pour in beef broth and bring to a simmer.",
+      "Cover and cook on low heat for 1.5 hours until beef is fork-tender."
+    ],
+    "tags": ["Dinner", "Beef", "Comfort Food"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-4",
+    "title": "Spaghetti & Meatballs",
+    "description": "Classic pasta topped with savory meatballs and marinara sauce.",
+    "image": "https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 35,
+    "calories": 580,
+    "estimatedCost": 10.0,
+    "ingredients": [
+      { "name": "Spaghetti", "amount": 400, "unit": "g" },
+      { "name": "Ground Beef", "amount": 1, "unit": "lb" },
+      { "name": "Marinara Sauce", "amount": 1, "unit": "jar" },
+      { "name": "Parmesan Cheese", "amount": 0.25, "unit": "cup" }
+    ],
+    "instructions": [
+      "Boil spaghetti according to package directions.",
+      "Roll ground beef into meatballs and pan-fry until fully cooked.",
+      "Simmer meatballs in marinara sauce for 10 minutes.",
+      "Serve sauce and meatballs over spaghetti with parmesan cheese."
+    ],
+    "tags": ["Dinner", "Pasta", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-5",
+    "title": "Pan-Seared Pork Chops",
+    "description": "Juicy pork chops seared with butter and thyme.",
+    "image": "https://images.unsplash.com/photo-1432139555190-58524dae6a55?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 25,
+    "calories": 420,
+    "estimatedCost": 11.0,
+    "ingredients": [
+      { "name": "Pork Chops", "amount": 4, "unit": "unit" },
+      { "name": "Butter", "amount": 2, "unit": "tbsp" },
+      { "name": "Garlic", "amount": 2, "unit": "cloves" },
+      { "name": "Salt", "amount": 0.5, "unit": "tsp" },
+      { "name": "Black Pepper", "amount": 0.5, "unit": "tsp" }
+    ],
+    "instructions": [
+      "Season pork chops generously with salt and pepper.",
+      "Heat skillet over medium-high heat with butter and garlic.",
+      "Sear pork chops 4-5 minutes per side until golden brown and cooked through."
+    ],
+    "tags": ["Dinner", "Pork", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-6",
+    "title": "Shepherd's Pie",
+    "description": "Savory ground beef and vegetables topped with creamy mashed potatoes.",
+    "image": "https://images.unsplash.com/photo-1584946920728-4687be0619b2?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 50,
+    "calories": 510,
+    "estimatedCost": 13.0,
+    "ingredients": [
+      { "name": "Ground Beef", "amount": 1, "unit": "lb" },
+      { "name": "Mashed Potatoes", "amount": 3, "unit": "cup" },
+      { "name": "Corn", "amount": 0.5, "unit": "cup" },
+      { "name": "Peas", "amount": 0.5, "unit": "cup" },
+      { "name": "Beef Gravy", "amount": 1, "unit": "cup" }
+    ],
+    "instructions": [
+      "Brown ground beef in a skillet and drain fat.",
+      "Stir in beef gravy, corn, and peas.",
+      "Transfer to baking dish and spread mashed potatoes over top.",
+      "Bake at 375°F (190°C) for 25 minutes until potatoes turn lightly golden."
+    ],
+    "tags": ["Dinner", "Comfort Food", "Beef"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-7",
+    "title": "Garlic Butter Salmon",
+    "description": "Tender salmon fillets pan-seared with garlic butter and lemon.",
+    "image": "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 20,
+    "calories": 440,
+    "estimatedCost": 16.0,
+    "ingredients": [
+      { "name": "Salmon", "amount": 4, "unit": "unit" },
+      { "name": "Butter", "amount": 3, "unit": "tbsp" },
+      { "name": "Garlic", "amount": 3, "unit": "cloves" },
+      { "name": "Lemon Juice", "amount": 1, "unit": "tbsp" }
+    ],
+    "instructions": [
+      "Season salmon with salt and pepper.",
+      "Melt butter in skillet over medium-high heat and add minced garlic.",
+      "Sear salmon skin-side up for 4 minutes, flip, and cook 3-4 more minutes until flaky."
+    ],
+    "tags": ["Dinner", "Fish", "Healthy", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-8",
+    "title": "Roast Chicken with Potatoes",
+    "description": "Whole roasted chicken served with golden garlic-herb potatoes.",
+    "image": "https://images.unsplash.com/photo-1532550907401-a500c9a57435?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 75,
+    "calories": 620,
+    "estimatedCost": 14.0,
+    "ingredients": [
+      { "name": "Whole Chicken", "amount": 1, "unit": "unit" },
+      { "name": "Potatoes", "amount": 4, "unit": "unit" },
+      { "name": "Butter", "amount": 3, "unit": "tbsp" },
+      { "name": "Rosemary", "amount": 1, "unit": "tsp" }
+    ],
+    "instructions": [
+      "Preheat oven to 375°F (190°C).",
+      "Rub chicken with melted butter, rosemary, salt, and pepper.",
+      "Arrange quartered potatoes around chicken in a roasting pan.",
+      "Roast for 1 hour 15 minutes until internal chicken temperature reaches 165°F."
+    ],
+    "tags": ["Dinner", "Chicken", "Comfort Food"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-9",
+    "title": "Chicken Stir-Fry",
+    "description": "Tender chicken strips and fresh vegetables tossed in a simple soy glaze.",
+    "image": "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 25,
+    "calories": 390,
+    "estimatedCost": 9.5,
+    "ingredients": [
+      { "name": "Chicken Breast", "amount": 1, "unit": "lb" },
+      { "name": "Broccoli", "amount": 2, "unit": "cup" },
+      { "name": "Soy Sauce", "amount": 3, "unit": "tbsp" },
+      { "name": "Rice", "amount": 2, "unit": "cup" }
+    ],
+    "instructions": [
+      "Cook rice according to package directions.",
+      "Slice chicken into bite-sized pieces and cook in a wok or skillet.",
+      "Add broccoli florets and soy sauce; stir-fry for 5-7 minutes until broccoli is tender-crisp.",
+      "Serve hot over rice."
+    ],
+    "tags": ["Dinner", "Chicken", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-10",
+    "title": "Beef Taco Bowl",
+    "description": "Seasoned ground beef served over rice with cheese and salsa.",
+    "image": "https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 20,
+    "calories": 530,
+    "estimatedCost": 8.5,
+    "ingredients": [
+      { "name": "Ground Beef", "amount": 1, "unit": "lb" },
+      { "name": "Taco Seasoning", "amount": 1, "unit": "packet" },
+      { "name": "Rice", "amount": 2, "unit": "cup" },
+      { "name": "Cheddar Cheese", "amount": 0.5, "unit": "cup" },
+      { "name": "Salsa", "amount": 0.5, "unit": "cup" }
+    ],
+    "instructions": [
+      "Brown ground beef in skillet, drain excess fat, and stir in taco seasoning with 1/4 cup water.",
+      "Divide cooked rice into bowls.",
+      "Top with taco beef, shredded cheddar cheese, and salsa."
+    ],
+    "tags": ["Dinner", "Beef", "Quick"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-11",
+    "title": "Baked Macaroni & Cheese",
+    "description": "Rich and creamy baked pasta topped with melted cheddar.",
+    "image": "https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 40,
+    "calories": 590,
+    "estimatedCost": 7.0,
+    "ingredients": [
+      { "name": "Macaroni", "amount": 400, "unit": "g" },
+      { "name": "Cheddar Cheese", "amount": 2, "unit": "cup" },
+      { "name": "Milk", "amount": 1.5, "unit": "cup" },
+      { "name": "Butter", "amount": 2, "unit": "tbsp" }
+    ],
+    "instructions": [
+      "Boil macaroni pasta until al dente.",
+      "Melt butter in pot, whisk in milk and 1.5 cups cheese until smooth sauce forms.",
+      "Combine pasta and cheese sauce in baking dish.",
+      "Top with remaining cheese and bake at 375°F (190°C) for 20 minutes."
+    ],
+    "tags": ["Dinner", "Pasta", "Comfort Food"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-12",
+    "title": "Dutch Oven Beef Chili",
+    "description": "Thick ground beef chili simmered on the stovetop with kidney beans and tomato sauce.",
+    "image": "https://images.unsplash.com/photo-1541544741938-0af808871cc0?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 50,
+    "calories": 460,
+    "estimatedCost": 11.5,
+    "ingredients": [
+      { "name": "Ground Beef", "amount": 1, "unit": "lb" },
+      { "name": "Kidney Beans", "amount": 1, "unit": "can" },
+      { "name": "Tomato Sauce", "amount": 2, "unit": "cup" },
+      { "name": "Chili Powder", "amount": 1, "unit": "tbsp" },
+      { "name": "Onion", "amount": 1, "unit": "unit" }
+    ],
+    "instructions": [
+      "Brown ground beef and diced onion in a Dutch oven or large pot over medium heat.",
+      "Stir in kidney beans, tomato sauce, chili powder, salt, and pepper.",
+      "Bring to a simmer, reduce heat to low, cover, and cook on the stovetop for 40 minutes."
+    ],
+    "tags": ["Dinner", "Beef", "Comfort Food"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-13",
+    "title": "Pork Tenderloin with Gravy",
+    "description": "Roast pork tenderloin sliced thin and smothered in rich pan gravy.",
+    "image": "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 35,
+    "calories": 380,
+    "estimatedCost": 12.0,
+    "ingredients": [
+      { "name": "Pork Tenderloin", "amount": 1, "unit": "lb" },
+      { "name": "Gravy", "amount": 1, "unit": "cup" },
+      { "name": "Garlic Powder", "amount": 1, "unit": "tsp" },
+      { "name": "Butter", "amount": 1, "unit": "tbsp" }
+    ],
+    "instructions": [
+      "Season pork tenderloin with garlic powder, salt, and pepper.",
+      "Sear in skillet with butter until browned on all sides.",
+      "Transfer to 400°F (200°C) oven for 20 minutes until internal temp reaches 145°F.",
+      "Slice and top with warm gravy."
+    ],
+    "tags": ["Dinner", "Pork", "High Protein"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-14",
+    "title": "Chicken & Rice Casserole",
+    "description": "Creamy baked chicken breasts with rice and veggies in one dish.",
+    "image": "https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 50,
+    "calories": 490,
+    "estimatedCost": 9.0,
+    "ingredients": [
+      { "name": "Chicken Breast", "amount": 1, "unit": "lb" },
+      { "name": "Rice", "amount": 1, "unit": "cup" },
+      { "name": "Chicken Broth", "amount": 2, "unit": "cup" },
+      { "name": "Mixed Vegetables", "amount": 1, "unit": "cup" }
+    ],
+    "instructions": [
+      "Combine rice, chicken broth, and mixed vegetables in a casserole dish.",
+      "Place seasoned chicken breasts on top.",
+      "Cover tightly with foil and bake at 375°F (190°C) for 45 minutes until rice is tender."
+    ],
+    "tags": ["Dinner", "Chicken", "Comfort Food"],
+    "isFavorite": false
+  },
+  {
+    "id": "seed-15",
+    "title": "Grilled Cheese & Tomato Soup",
+    "description": "Crispy golden grilled cheese sandwich paired with warm tomato soup.",
+    "image": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=600&auto=format&fit=crop&q=80",
+    "prepTime": 15,
+    "calories": 430,
+    "estimatedCost": 5.0,
+    "ingredients": [
+      { "name": "Bread", "amount": 4, "unit": "slices" },
+      { "name": "Cheddar Cheese", "amount": 4, "unit": "slices" },
+      { "name": "Butter", "amount": 2, "unit": "tbsp" },
+      { "name": "Tomato Soup", "amount": 1, "unit": "can" }
+    ],
+    "instructions": [
+      "Butter bread slices and sandwich cheese in between.",
+      "Toast sandwiches in skillet over medium heat until golden brown and cheese is melted.",
+      "Heat tomato soup in saucepan and serve together."
+    ],
+    "tags": ["Dinner", "Quick", "Comfort Food"],
+    "isFavorite": false
+  }
+]
