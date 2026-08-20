@@ -455,9 +455,16 @@ export default function MealsPage() {
 
                           {/* Printed Ingredients on Lined Card */}
                           {ingredientsList.length > 0 && (
-                            <div className="mt-1 pt-1 border-t border-[#f4eee6] font-['Caveat'] text-lg text-[#786c62] leading-snug">
-                              <span className="font-bold text-[#8c6d53] text-sm mr-1">Ingredients:</span>
-                              {ingredientsList.map((i: any) => i.name).join(', ')}
+                            <div className="mt-2 pt-1 border-t border-[#f4eee6] font-['Caveat'] text-lg text-[#786c62] leading-snug">
+                              <span className="font-bold text-[#8c6d53] text-sm block mb-0.5">Ingredients:</span>
+                              <ul className="space-y-0.5 pl-1">
+                                {ingredientsList.map((i: any, iIdx: number) => (
+                                  <li key={iIdx} className="flex items-center justify-between text-base">
+                                    <span>• {i.name}</span>
+                                    {i.amount && <span className="text-xs font-mono text-[#a09384] ml-2">{i.amount} {i.unit || ''}</span>}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                         </div>
